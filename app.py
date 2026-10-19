@@ -39,7 +39,11 @@ from transformers import (  # noqa: E402
     LayoutLMv3Processor,
 )
 
-pembaca = easyocr.Reader(rantai.BAHASA_OCR, gpu=False)
+# quantize=False WAJIB. Nilai bawaannya True, dan kuantisasi int8 hanya
+# diterapkan di CPU. Data gold dibuat Notebook A di GPU, jadi tanpa kuantisasi.
+# Dengan kuantisasi, pengenal huruf membaca "RIDGI (LAY" untuk kata yang di
+# gold terbaca "KIDDY CLAY", dan model menerima teks yang asing baginya.
+pembaca = easyocr.Reader(rantai.BAHASA_OCR, gpu=False, quantize=False)
 
 # JEBAKAN: kalau apply_ocr True, processor menjalankan OCR sendiri dan
 # menimpa kotak hasil EasyOCR tanpa pesan apa pun.
@@ -170,6 +174,8 @@ def sehat():
         "siap": True,
         "model": MODEL_ID,
         "detik_muat": DETIK_MUAT,
+        "easyocr": easyocr.__version__,
+        "kuantisasi": False,
         "rss_gb": round(p.memory_info().rss / 1e9, 2),
         "puncak_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2),
         "berkunci": bool(KUNCI),
