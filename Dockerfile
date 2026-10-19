@@ -19,7 +19,10 @@ RUN python -c "import easyocr; easyocr.Reader(['en'], gpu=False)" \
 LayoutLMv3Processor.from_pretrained('microsoft/layoutlmv3-base', apply_ocr=False); \
 LayoutLMv3ForTokenClassification.from_pretrained(os.environ['MODEL_ID'])"
 
-COPY app.py .
+COPY *.py .
+
+# Build gagal kalau rantai pra-pemrosesan atau kontrak JSON rusak.
+RUN python uji.py
 
 # Railway menentukan nomor port lewat $PORT. Mengikat ke port tetap
 # membuat layanan terlihat mati dari luar.
