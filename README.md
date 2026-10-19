@@ -30,7 +30,7 @@ persis keluaran `ke_json` Notebook E, dan `waktu` per tahap.
 
 1. ~~Bobot model di Hugging Face~~ selesai.
    Sudah dipakai: `Klissh/layoutlmv3-struk-summa`, 43 label BIO.
-2. Versi `easyocr` dikunci di `requirements.txt`.
+2. ~~Versi `easyocr` dikunci~~ selesai: `easyocr==1.7.2`, sama dengan Notebook A dan E.
 3. Latensi dan ketepatan rantai **dengan penengah** belum pernah diukur.
    Notebook E mengukur tanpa penengah.
 

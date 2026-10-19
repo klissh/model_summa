@@ -6,10 +6,10 @@ torch==2.11.0+cpu
 # Versi ini wajib sama dengan Notebook C dan E. Beda versi, beda keluaran.
 transformers==5.20.1
 
-# shortcut: versi easyocr belum dikunci karena di Kaggle dipasang tanpa versi.
-# Jalankan `print(easyocr.__version__)` di Notebook E, lalu kunci di sini
-# sebelum angka BAB IV dikutip dari server ini.
-easyocr
+# Versi yang dipakai Notebook E dan Notebook A. Jangan dilepas.
+# Versi lain memakai model pengenal teks yang berbeda, dan teksnya ikut
+# berbeda, sehingga model menerima masukan yang tidak pernah dia lihat.
+easyocr==1.7.2
 
 # Pustaka server. Versinya tidak mempengaruhi keluaran model.
 fastapi
