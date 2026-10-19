@@ -1,0 +1,19 @@
+# Wheel CPU. Tanpa baris ini pip menarik torch versi CUDA beserta pustaka
+# nvidia, dan ukuran image membengkak dari sekitar 1,5 GB jadi lebih dari 6 GB.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.11.0+cpu
+
+# Versi ini wajib sama dengan Notebook C dan E. Beda versi, beda keluaran.
+transformers==5.20.1
+
+# shortcut: versi easyocr belum dikunci karena di Kaggle dipasang tanpa versi.
+# Jalankan `print(easyocr.__version__)` di Notebook E, lalu kunci di sini
+# sebelum angka BAB IV dikutip dari server ini.
+easyocr
+
+# Pustaka server. Versinya tidak mempengaruhi keluaran model.
+fastapi
+uvicorn[standard]
+python-multipart
+pillow
+psutil
