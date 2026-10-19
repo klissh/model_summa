@@ -6,6 +6,7 @@ urutan baca, dan bentuk JSON yang dikirim ke aplikasi.
 """
 
 from rantai import (
+    ekstensi_gambar,
     ke_json,
     ke_kontrak_aplikasi,
     norm_bbox,
@@ -81,5 +82,14 @@ h2 = ke_json(tanpa_total, 300, 200)
 assert h2["total"] is None
 app2 = ke_kontrak_aplikasi(h2, tanpa_total, "uji2", "model-uji")
 assert app2["ringkasan"]["total"]["nilai"] is None, "aplikasi harus tetap jalan tanpa total"
+
+# --- 7. akhiran berkas sementara. Pernah bikin 500 di produksi. ---
+# ".img" membuat skimage memilih pembaca citra medis SimpleITK lalu gagal,
+# jadi akhiran harus datang dari format yang dibaca Pillow, bukan dari
+# nama berkas yang dikirim pengguna.
+assert ekstensi_gambar("JPEG") == ".jpg"
+assert ekstensi_gambar("PNG") == ".png"
+assert ekstensi_gambar(None) is None
+assert ekstensi_gambar("GIF") is None, "format tak didukung harus ditolak, bukan ditebak"
 
 print("semua uji lolos")

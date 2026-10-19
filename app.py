@@ -5,6 +5,7 @@ Disalin dari Notebook E sel 8, dengan satu tambahan: penengah hibrida,
 yang di notebook itu tidak dipakai.
 """
 
+import io
 import os
 import resource  # hanya ada di Linux, dan kontainernya Linux
 import tempfile
@@ -186,9 +187,17 @@ async def ekstrak(berkas: UploadFile = File(...), x_kunci: str = Header(default=
     if len(isi) > MAKS_BYTE:
         raise HTTPException(status_code=413, detail=f"maksimal {MAKS_BYTE // 1024 // 1024} MB")
 
+    try:
+        with Image.open(io.BytesIO(isi)) as im:
+            akhiran = rantai.ekstensi_gambar(im.format)
+    except Exception:
+        raise HTTPException(status_code=400, detail="bukan berkas gambar")
+    if akhiran is None:
+        raise HTTPException(status_code=415, detail="format gambar tidak didukung")
+
     jalur = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".img", delete=False) as f:
+        with tempfile.NamedTemporaryFile(suffix=akhiran, delete=False) as f:
             f.write(isi)
             jalur = f.name
         keluar, waktu = jalankan(jalur)

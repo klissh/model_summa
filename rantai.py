@@ -172,6 +172,20 @@ def ke_json(kot, lebar, tinggi):
 # di repo aplikasi. Hanya mengganti nama medan dan menyusun ulang, tidak ada
 # nilai yang dihitung ulang, sehingga tidak mempengaruhi angka ketepatan.
 # ---------------------------------------------------------------------------
+EKSTENSI_GAMBAR = {"jpeg": ".jpg", "png": ".png", "webp": ".webp",
+                   "bmp": ".bmp", "tiff": ".tif"}
+
+
+def ekstensi_gambar(format_pillow):
+    """Nama format dari Pillow jadi akhiran berkas. None kalau tidak didukung.
+
+    EasyOCR membaca lewat skimage, dan skimage memilih pembaca berdasarkan
+    AKHIRAN berkas, bukan isinya. Akhiran yang salah membuatnya memilih
+    pembaca citra medis SimpleITK lalu gagal.
+    """
+    return EKSTENSI_GAMBAR.get((format_pillow or "").lower())
+
+
 MEDAN_RINGKASAN = {
     "subtotal": "sub_total.subtotal_price",
     "pajak": "sub_total.tax_price",
