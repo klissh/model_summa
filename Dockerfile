@@ -12,12 +12,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Bobot diunduh saat build, lalu ikut masuk ke dalam image. Tanpa ini,
 # setiap kali layanan bangun dari tidur ia mengunduh ulang sekitar 600 MB.
-ARG MODEL_ID=microsoft/layoutlmv3-base
+ARG MODEL_ID=Klissh/layoutlmv3-struk-summa
 ENV MODEL_ID=${MODEL_ID}
 RUN python -c "import easyocr; easyocr.Reader(['en'], gpu=False)" \
  && python -c "import os; from transformers import LayoutLMv3Processor, LayoutLMv3ForTokenClassification; \
-LayoutLMv3Processor.from_pretrained('microsoft/layoutlmv3-base', apply_ocr=False); \
-LayoutLMv3ForTokenClassification.from_pretrained(os.environ['MODEL_ID'])"
+i = os.environ['MODEL_ID']; \
+LayoutLMv3Processor.from_pretrained(i, apply_ocr=False); \
+LayoutLMv3ForTokenClassification.from_pretrained(i)"
 
 COPY *.py .
 

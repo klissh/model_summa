@@ -20,7 +20,7 @@ import pembanding_aturan as PA
 import rantai
 from hibrida_penengah import SET_ATURAN_MENANG, penengah
 
-MODEL_ID = os.environ.get("MODEL_ID", "microsoft/layoutlmv3-base")
+MODEL_ID = os.environ.get("MODEL_ID", "Klissh/layoutlmv3-struk-summa")
 KUNCI = os.environ.get("KUNCI", "")
 MAKS_BYTE = 10 * 1024 * 1024
 
@@ -42,7 +42,7 @@ pembaca = easyocr.Reader(rantai.BAHASA_OCR, gpu=False)
 
 # JEBAKAN: kalau apply_ocr True, processor menjalankan OCR sendiri dan
 # menimpa kotak hasil EasyOCR tanpa pesan apa pun.
-proc = LayoutLMv3Processor.from_pretrained("microsoft/layoutlmv3-base", apply_ocr=False)
+proc = LayoutLMv3Processor.from_pretrained(MODEL_ID, apply_ocr=False)
 proc.image_processor.apply_ocr = False
 assert proc.image_processor.apply_ocr is False, "apply_ocr masih True"
 

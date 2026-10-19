@@ -28,8 +28,8 @@ persis keluaran `ke_json` Notebook E, dan `waktu` per tahap.
 
 ## Yang masih kurang
 
-1. Bobot model di Hugging Face, lalu `MODEL_ID` diarahkan ke sana.
-   Selama masih `microsoft/layoutlmv3-base`, label yang keluar tidak berarti.
+1. ~~Bobot model di Hugging Face~~ selesai.
+   Sudah dipakai: `Klissh/layoutlmv3-struk-summa`, 43 label BIO.
 2. Versi `easyocr` dikunci di `requirements.txt`.
 3. Latensi dan ketepatan rantai **dengan penengah** belum pernah diukur.
    Notebook E mengukur tanpa penengah.
