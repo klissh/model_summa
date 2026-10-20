@@ -185,6 +185,9 @@ def sehat():
         "rss_gb": round(p.memory_info().rss / 1e9, 2),
         "puncak_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2),
         "berkunci": bool(KUNCI),
+        # Tanpa ini tidak ada cara tahu kode mana yang sedang hidup, dan
+        # pengukuran bisa salah dikira berasal dari versi yang baru.
+        "revisi": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")[:7] or "tidak diketahui",
     }
 
 
