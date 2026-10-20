@@ -24,6 +24,7 @@ from hibrida_penengah import SET_ATURAN_MENANG, penengah
 MODEL_ID = os.environ.get("MODEL_ID", "Klissh/layoutlmv3-struk-summa")
 KUNCI = os.environ.get("KUNCI", "")
 MAKS_BYTE = 10 * 1024 * 1024
+SATU_TOTAL = False  # False = varian P2 yang dipra-registrasikan, True = P2U
 
 # Notebook E memakai 2 utas. Kalau berbeda, angka latensi tidak sebanding.
 torch.set_num_threads(int(os.environ.get("UTAS_TORCH", "2")))
@@ -153,7 +154,11 @@ def jalankan(jalur):
     # dimenangkan aturan. hibrida_penengah.py dibekukan, jadi tidak bisa
     # dimintai keterangan itu. Biayanya puluhan milidetik atas ratusan kotak.
     aturan = PA.prediksi(struk)
-    akhir = penengah(struk, label_model, skor_model)
+    # satu_total=False, yaitu varian P2. P2U memaksa tepat satu total per struk,
+    # dan pengukuran 16 struk uji menunjukkan itu tidak menaikkan ketepatan
+    # (29,7 lawan 30,7 persen) sambil menghasilkan total yang salah dengan
+    # percaya diri, misalnya 436,00 untuk struk yang totalnya 6,35.
+    akhir = penengah(struk, label_model, skor_model, satu_total=SATU_TOTAL)
     for b, L_aturan, L_akhir in zip(kotak, aturan, akhir):
         b["_label"] = L_akhir
         b["_dari_aturan"] = L_aturan in SET_ATURAN_MENANG and L_aturan == L_akhir
@@ -176,6 +181,7 @@ def sehat():
         "detik_muat": DETIK_MUAT,
         "easyocr": easyocr.__version__,
         "kuantisasi": False,
+        "satu_total": SATU_TOTAL,
         "rss_gb": round(p.memory_info().rss / 1e9, 2),
         "puncak_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2),
         "berkunci": bool(KUNCI),
