@@ -124,4 +124,24 @@ for _m in [0.0, 0.05, 0.10, 0.15]:
 assert len(set(urut_baca(_struk_miring(0.10))[1])) != N_BARIS, \
     "urut_baca ternyata tahan miring, alasan kelompok_baris gugur"
 
+# --- 9. harga yang terpotong di titik desimal harus disatukan lagi ---
+# Kasus nyata 20 Oktober 2026: "RM 10.90" di struk 99 Speed Mart terbaca
+# sebagai dua kotak, dan aplikasi menampilkan 90,00.
+_pecah = [
+    kotak("LIFEBUOY", 20, 50, 100, 68, "menu.nm"),
+    kotak("PELEMBAP", 105, 50, 185, 68, "menu.nm"),
+    kotak("RM", 200, 50, 225, 68, "menu.price"),
+    kotak("10.", 230, 50, 260, 68, "menu.price"),
+    kotak("90", 262, 50, 290, 68, "menu.price"),
+]
+_h = ke_json(_pecah, 400, 200)
+assert len(_h["item"]) == 1, _h["item"]
+assert _h["item"][0]["harga"] == 10.90, _h["item"][0]["harga"]
+assert _h["item"][0]["nama"] == "LIFEBUOY PELEMBAP", _h["item"][0]["nama"]
+
+# --- 10. tanpa kotak menu.cnt, jumlah barang adalah satu, bukan nol ---
+assert _h["item"][0]["jumlah"] == 1.0, _h["item"][0]["jumlah"]
+_dgn_cnt = _pecah + [kotak("3", 10, 50, 18, 68, "menu.cnt")]
+assert ke_json(_dgn_cnt, 400, 200)["item"][0]["jumlah"] == 3.0
+
 print("semua uji lolos")

@@ -182,6 +182,20 @@ def _gabung(kot, label):
     return out
 
 
+def _angka_baris(bar, label):
+    """Gabungkan dulu semua kotak berlabel sama dalam satu baris, baru diangkakan.
+
+    CRAFT kerap memotong "10.90" menjadi dua kotak di titik desimalnya, dan
+    keduanya dilabeli menu.price. Mengambil satu kotak saja memberi 90,0.
+    Medan ringkasan sudah digabung lewat _gabung(); ini menyamakan
+    perlakuannya untuk daftar item, yang sebelumnya terlewat.
+
+    bar harus sudah urut kiri ke kanan.
+    """
+    t = " ".join(b["teks"] for b in bar if b["_label"] == label)
+    return _uang(t) if t.strip() else None
+
+
 def ke_json(kot, lebar, tinggi):
     """Kontrak JSON untuk aplikasi. Setiap nilai membawa keyakinannya sendiri."""
     def satu(label, angka=False):
@@ -205,18 +219,16 @@ def ke_json(kot, lebar, tinggi):
     for r in sorted(per_baris):
         bar = sorted(per_baris[r], key=lambda z: z["bbox"][0])
         nm = " ".join(b["teks"] for b in bar if b["_label"] == "menu.nm")
-        hr = [b for b in bar if b["_label"] == "menu.price"]
-        if not (nm or hr): continue
-        cn = [b for b in bar if b["_label"] == "menu.cnt"]
-        up = [b for b in bar if b["_label"] == "menu.unitprice"]
-        dk = [b for b in bar if b["_label"] == "menu.discountprice"]
-        if not hr and not nm: continue
+        if not (nm or any(b["_label"] == "menu.price" for b in bar)): continue
+        jml = _angka_baris(bar, "menu.cnt")
         item.append({
             "nama": nm or None,
-            "jumlah": _uang(cn[0]["teks"]) if cn else None,
-            "harga_satuan": _uang(up[0]["teks"]) if up else None,
-            "harga": _uang(hr[-1]["teks"]) if hr else None,
-            "diskon": _uang(dk[0]["teks"]) if dk else None,
+            # Struk tanpa kolom kuantitas, seperti 99 Speed Mart, berarti satu
+            # per barang. None membuat aplikasi menampilkan 0, yang salah.
+            "jumlah": 1.0 if jml is None else jml,
+            "harga_satuan": _angka_baris(bar, "menu.unitprice"),
+            "harga": _angka_baris(bar, "menu.price"),
+            "diskon": _angka_baris(bar, "menu.discountprice"),
             "yakin": round(min([b["_yakin"] for b in bar if b["_label"] != "O"] or [0.0]), 4),
         })
 

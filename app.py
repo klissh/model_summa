@@ -192,7 +192,8 @@ def sehat():
 
 
 @app.post("/ekstrak")
-async def ekstrak(berkas: UploadFile = File(...), x_kunci: str = Header(default="")):
+async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
+                  x_kunci: str = Header(default="")):
     if KUNCI and x_kunci != KUNCI:
         raise HTTPException(status_code=401, detail="kunci salah")
 
@@ -224,8 +225,16 @@ async def ekstrak(berkas: UploadFile = File(...), x_kunci: str = Header(default=
             os.unlink(jalur)
 
     id_struk = uuid.uuid4().hex[:12]
-    return {
+    jawab = {
         "aplikasi": rantai.ke_kontrak_aplikasi(hasil, kot, id_struk, MODEL_ID),
         "mentah": hasil,
         "waktu": {k: round(v, 3) if isinstance(v, float) else v for k, v in waktu.items()},
     }
+    # ?rinci=1 memunculkan kotak OCR beserta labelnya. Dipakai untuk menelusuri
+    # kesalahan agregasi, yang tanpa ini hanya bisa ditebak dari hasil akhir.
+    # Aplikasi tidak memintanya, jadi muatan jawaban sehari-hari tidak berubah.
+    if rinci:
+        jawab["kotak"] = [{"teks": b["teks"], "bbox": b["bbox"],
+                           "label": b["_label"], "yakin": round(b["_yakin"], 3)}
+                          for b in kot]
+    return jawab
