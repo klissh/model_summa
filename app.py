@@ -164,7 +164,12 @@ def jalankan(jalur):
         b["_dari_aturan"] = L_aturan in SET_ATURAN_MENANG and L_aturan == L_akhir
     w["6_penengah"] = time.perf_counter() - t
 
-    hasil = rantai.ke_json(kot, L, T)
+    # ke_json_lengkap, bukan ke_json. Yang polos tetap ada karena dipakai
+    # menyusun jawaban gold di ukur_server.py, dan kalau gold ikut ditambal
+    # pengukurannya membandingkan sistem dengan dirinya sendiri.
+    # PA.prediksi memang jadi dipanggil dua kali, di sini dan di dalam
+    # penambalan. Biayanya puluhan milidetik atas rantai yang 7 detik.
+    hasil = rantai.ke_json_lengkap(kot, L, T)
     w["total"] = sum(v for k, v in w.items() if k != "total")
     w["n_kotak"] = len(kot)
     w["n_jendela"] = n_jendela

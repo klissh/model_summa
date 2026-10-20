@@ -177,4 +177,45 @@ assert _harga(_nama + [kotak("KULI", 230, 50, 270, 68, "menu.nm"),
 # f. tanpa kotak angka sama sekali, tetap kosong, bukan mengarang.
 assert _harga(_nama) is None
 
+# --- 12. penambalan agregasi V6 ---
+from rantai import _POLA_JAM, _uang_potongan, ke_json_lengkap  # noqa: E402
+
+# a. titik desimal yang tidak terbaca OCR dipulihkan dari dua angka ekor
+assert _uang_potongan(["11", "10"]) == 11.10
+assert _uang_potongan(["56", "95"]) == 56.95
+assert _uang_potongan(["2 .", "05"]) == 2.05      # titiknya terbaca
+assert _uang_potongan(["170", "00"]) == 170.00
+# b. bilangan utuh satu kotak TIDAK boleh diotak-atik
+assert _uang_potongan(["170"]) == 170.0
+assert _uang_potongan(["1.50"]) == 1.50
+# c. gabungan yang tidak masuk akal menghasilkan None, bukan angka ngawur
+assert _uang_potongan(["123", "73", "Q0"]) is None
+
+# d. harga bukan jam. Cacat ini pernah ada dan menaruh 7,95 di medan jam.
+assert not _POLA_JAM.match("7.95")
+assert not _POLA_JAM.match("1.75")
+assert _POLA_JAM.match("03:29Pm") and _POLA_JAM.match("3:42")
+
+# e. PEMISAHAN YANG WAJIB DIJAGA.
+# ke_json() dipakai menyusun jawaban gold saat mengukur. Kalau penambalan
+# V6 ikut masuk ke sana, gold ikut ditambal dan seluruh angka ketepatan
+# membandingkan sistem dengan dirinya sendiri. Struk di bawah punya total
+# yang terpotong jadi dua kotak berlabel sama; ke_json WAJIB tetap salah.
+_terpotong = [
+    kotak("TOTAL", 20, 50, 90, 70),
+    kotak("56", 200, 50, 232, 70, "total.total_price", 0.9),
+    kotak("95", 240, 50, 272, 70, "total.total_price", 0.9),
+]
+assert ke_json(_terpotong, 300, 100)["total"]["nilai"] == 5695.0, \
+    "ke_json ternyata sudah ditambal, jawaban gold jadi tidak sah"
+assert ke_json_lengkap(_terpotong, 300, 100)["total"]["nilai"] == 56.95
+
+# f. kata kunci tidak boleh tertangkap dari nama toko
+_subway = [
+    kotak("SUBWAY", 20, 50, 100, 70, "store.nm", 0.9),
+    kotak("12.00", 200, 50, 260, 70),
+]
+assert ke_json_lengkap(_subway, 300, 100)["subtotal"] is None, \
+    "SUBWAY tertangkap sebagai baris subtotal"
+
 print("semua uji lolos")

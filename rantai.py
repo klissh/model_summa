@@ -396,3 +396,216 @@ def ke_kontrak_aplikasi(hasil, kot, id_struk, versi_model):
         "item": item,
         "ringkasan": {k: medan(k) for k in MEDAN_RINGKASAN},
     }
+
+
+# ---------------------------------------------------------------------------
+# PENAMBALAN AGREGASI (varian V6). BUKAN salinan Notebook E.
+#
+# Sengaja TIDAK dimasukkan ke dalam ke_json(), karena ke_json() juga dipakai
+# menyusun jawaban gold di ukur_server.py. Kalau gold ikut ditambal,
+# pengukurannya membandingkan sistem dengan dirinya sendiri.
+#
+# Disetel pada 12 struk pilot, lalu diuji SEKALI pada 16 struk uji: ketepatan
+# gabungan 30,7 persen menjadi 43,6 persen. Enam varian dicoba. Rinciannya di
+# aplikasi/percobaan_agregasi/pra_registrasi.md dan catatan BAB IV bagian G10.
+#
+# Seluruhnya bekerja di hilir model. Kotak, label, dan masukan model tidak
+# disentuh, jadi angka tingkat kotak di bagian A sampai G8 tetap berlaku.
+# ---------------------------------------------------------------------------
+import pembanding_aturan as _PA
+
+# Titik TIDAK boleh jadi pemisah jam: "7.95" itu harga, bukan jam.
+_POLA_JAM = _re.compile(r"^\d{1,2}[:;]\d{2}(?:[:;]\d{2})?\s*[AP]?\.?M?\.?$", _re.I)
+_POLA_TANGGAL = _re.compile(r"^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$")
+
+# "SUBT" bukan "SUB", supaya nama toko seperti SUBWAY tidak ikut tertangkap.
+_KATA_MEDAN = {"subtotal": ("SUBT", "AMOUNT"),
+               "pajak": ("GST", "SST", "TAX", "CUKAI")}
+
+
+def _uang_potongan(potong):
+    """Angkakan potongan satu bilangan, tahan titik desimal yang tidak terbaca.
+
+    "2 ." + "05" jadi 2.05, titiknya terbaca dan _uang sudah cukup.
+    "56" + "95"  jadi 56.95, titiknya hilang lalu dipulihkan dari angka ekor.
+
+    Pemulihan ekor hanya saat ada dua potongan atau lebih dan tidak satu pun
+    memuat titik atau koma, supaya bilangan utuh "170" tidak jadi 1,70.
+    """
+    teks = " ".join(p for p in potong if p)
+    v = _uang(teks)
+    if len(potong) >= 2 and not any(c in ".," for c in teks):
+        ekor = (potong[-1] or "").strip()
+        if len(ekor) == 2 and ekor.isdigit():
+            kepala = _uang(" ".join(potong[:-1]))
+            if kepala is not None:
+                return kepala + int(ekor) / 100.0
+    return v
+
+
+def _baris_kotak(kot, idb):
+    baris = {}
+    for b, r in zip(kot, idb):
+        baris.setdefault(r, []).append(b)
+    for v in baris.values():
+        v.sort(key=lambda z: z["bbox"][0])
+    return baris
+
+
+def _ambang_baris(sebaris):
+    tin = sorted(max(1, b["bbox"][3] - b["bbox"][1]) for b in sebaris)
+    return 0.6 * tin[len(tin) // 2]
+
+
+def _gugus_kanan(sebaris, ambang):
+    """Gugus angka paling kanan pada satu baris, potongannya sudah disatukan."""
+    calon = [b for b in sebaris if _mirip_uang(b["teks"])]
+    if not calon:
+        return None
+    gugus, kini = [], [calon[0]]
+    for b in calon[1:]:
+        if b["bbox"][0] - kini[-1]["bbox"][2] <= ambang:
+            kini.append(b)
+        else:
+            gugus.append(kini)
+            kini = [b]
+    gugus.append(kini)
+    return gugus[-1]
+
+
+def _isi(h, medan, kotak2):
+    h[medan] = {"teks": " ".join(b["teks"] for b in kotak2),
+                "nilai": _uang_potongan([b["teks"] for b in kotak2]),
+                "yakin": round(sum(b["_yakin"] for b in kotak2) / len(kotak2), 4),
+                "bbox": [min(b["bbox"][0] for b in kotak2), min(b["bbox"][1] for b in kotak2),
+                         max(b["bbox"][2] for b in kotak2), max(b["bbox"][3] for b in kotak2)]}
+
+
+def _satukan_potongan(kot, idb, h):
+    """V1. Satukan potongan bilangan yang CRAFT pecah di titik desimalnya.
+
+    Perluasan mengabaikan label tetangga, karena justru itu masalahnya: kedua
+    potongan sering mendapat label berbeda. Dibatasi tiga hal, yaitu harus
+    sebaris, harus berisi angka saja, dan jaraknya di bawah 0,6 tinggi huruf.
+
+    Ini satu-satunya komponen yang mengubah nilai yang sudah ada, jadi
+    satu-satunya yang bisa menurunkan ketepatan.
+    """
+    for medan, label in MEDAN_RINGKASAN.items():
+        e = h.get(medan)
+        if not e:
+            continue
+        x0, y0, x1, y1 = e["bbox"]
+        inti = [i for i, b in enumerate(kot)
+                if b["_label"] == label and b["bbox"][0] >= x0 and b["bbox"][2] <= x1
+                and b["bbox"][1] >= y0 and b["bbox"][3] <= y1]
+        if not inti:
+            continue
+        baris = {idb[i] for i in inti}
+        sebaris = sorted((i for i, r in enumerate(idb) if r in baris),
+                         key=lambda i: kot[i]["bbox"][0])
+        ambang = _ambang_baris([kot[i] for i in sebaris])
+        pakai, tumbuh = set(inti), True
+        while tumbuh:
+            tumbuh = False
+            kiri = min(kot[i]["bbox"][0] for i in pakai)
+            kanan = max(kot[i]["bbox"][2] for i in pakai)
+            for i in sebaris:
+                if i in pakai or not _mirip_uang(kot[i]["teks"]):
+                    continue
+                if kot[i]["bbox"][0] - kanan <= ambang and kiri - kot[i]["bbox"][2] <= ambang:
+                    pakai.add(i)
+                    tumbuh = True
+        potong = [kot[i]["teks"] for i in sorted(pakai, key=lambda i: kot[i]["bbox"][0])]
+        if len(potong) == 1:
+            continue
+        # Dua kotak yang SUDAH berlabel sama pun tetap diproses di sini,
+        # karena "11" + "10" perlu pemulihan titik desimal walau tidak ada
+        # tetangga baru yang diserap.
+        v = _uang_potongan(potong)
+        if v is None:
+            # Gabungan yang tidak masuk akal, misalnya kemasukan "Q0",
+            # dibiarkan. Nilai semula lebih baik daripada None.
+            continue
+        e["nilai"] = v
+        e["teks"] = " ".join(potong)
+    return h
+
+
+def _cadangan_aturan(kot, lebar, tinggi, h):
+    """V2. Jawaban pembanding aturan, hanya untuk medan yang masih kosong.
+
+    hibrida_penengah.SET_ATURAN_MENANG tidak memuat sub_total.tax_price
+    maupun total.changeprice, jadi jawaban aturan untuk keduanya selalu
+    dibuang penengah walau sering benar. Penengah itu beku dan tidak
+    disentuh, cadangan ini dipasang sesudahnya.
+    """
+    aturan = _PA.prediksi({"kotak": kot, "lebar": lebar, "tinggi": tinggi})
+    for medan, label in MEDAN_RINGKASAN.items():
+        if (h.get(medan) or {}).get("nilai") is not None:
+            continue
+        ambil = [b for b, a in zip(kot, aturan) if a == label]
+        if not ambil:
+            continue
+        ambil.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
+        if _uang_potongan([b["teks"] for b in ambil]) is not None:
+            _isi(h, medan, ambil)
+    return h
+
+
+def _cadangan_bentuk(kot, h):
+    """V4. Tanggal dan jam lewat bentuk tulisannya, hanya saat medan kosong.
+
+    Tidak disetel pada data sama sekali. Pada 16 struk uji justru komponen
+    inilah yang paling banyak menolong, tanggal naik 6, karena ia berasal
+    dari pengetahuan bentuk dan bukan dari 12 struk pilot.
+    """
+    for medan, pola in (("tanggal", _POLA_TANGGAL), ("jam", _POLA_JAM)):
+        if h.get(medan):
+            continue
+        for b in kot:  # urutan baca, jadi yang paling atas menang
+            t = (b["teks"] or "").strip()
+            if pola.match(t):
+                h[medan] = {"teks": t, "nilai": t, "yakin": round(b["_yakin"], 4),
+                            "bbox": list(b["bbox"])}
+                break
+    return h
+
+
+def _cadangan_kata(kot, idb, h):
+    """V6. Kata kunci sebaris, hanya saat medan kosong.
+
+    Model tidak pernah sekali pun melabeli subtotal maupun pajak pada 12
+    struk pilot, padahal teks kotaknya sering sempurna. Pembanding aturan
+    juga lewat, karena kata kuncinya rusak dibaca OCR: "Sub Tatal",
+    "SubTota|", "Tota Amount:". Pencocokan atas HURUF saja membuatnya tahan
+    terhadap kotak terpotong dan tanda baca liar.
+    """
+    baris = _baris_kotak(kot, idb)
+    huruf = {r: "".join(c for c in "".join(b["teks"] or "" for b in v).upper() if c.isalpha())
+             for r, v in baris.items()}
+    for medan, kata in _KATA_MEDAN.items():
+        if (h.get(medan) or {}).get("nilai") is not None:
+            continue
+        for r in sorted(baris):
+            if not any(w in huruf[r] for w in kata):
+                continue
+            pilih = _gugus_kanan(baris[r], _ambang_baris(baris[r]))
+            if pilih and _uang_potongan([b["teks"] for b in pilih]) is not None:
+                _isi(h, medan, pilih)
+                break
+    return h
+
+
+def ke_json_lengkap(kot, lebar, tinggi):
+    """ke_json ditambah penambalan agregasi V6. Inilah yang dipakai server.
+
+    ke_json() yang polos tetap dipertahankan, karena dipakai menyusun jawaban
+    gold saat mengukur. Jangan disatukan.
+    """
+    h = ke_json(kot, lebar, tinggi)
+    idb = kelompok_baris(kot)
+    h = _satukan_potongan(kot, idb, h)
+    h = _cadangan_aturan(kot, lebar, tinggi, h)
+    h = _cadangan_bentuk(kot, h)
+    return _cadangan_kata(kot, idb, h)
