@@ -21,7 +21,7 @@ import pembanding_aturan as PA
 import rantai
 from hibrida_penengah import SET_ATURAN_MENANG, penengah
 
-MODEL_ID = os.environ.get("MODEL_ID", "Klissh/layoutlmv3-struk-summa")
+MODEL_ID = os.environ.get("MODEL_ID", "Klissh/layoutlmv3-struk-summa-ocr")
 KUNCI = os.environ.get("KUNCI", "")
 MAKS_BYTE = 10 * 1024 * 1024
 SATU_TOTAL = False  # False = varian P2 yang dipra-registrasikan, True = P2U
