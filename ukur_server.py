@@ -144,7 +144,9 @@ def main():
         print("%-14s %8d %8d %10.1f%%" % (m, ada[m], benar[m], 100 * benar[m] / ada[m]))
     tb, ta = sum(benar.values()), sum(ada.values())
     print("%-14s %8d %8d %10.1f%%" % ("GABUNGAN", ta, tb, 100 * tb / max(1, ta)))
-    print("\nPembanding Notebook E sel 12, tanpa penengah : 30.7%")
+    print("\nPembanding Notebook E sel 12, tanpa penengah  : 30.7%")
+    print("Pembanding server sebelum penambalan agregasi  : 30.7%")
+    print("Percobaan agregasi V6, diukur di luar server   : 43.6%")
 
     if waktu:
         w = sorted(waktu)
