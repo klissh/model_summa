@@ -144,4 +144,37 @@ assert _h["item"][0]["jumlah"] == 1.0, _h["item"][0]["jumlah"]
 _dgn_cnt = _pecah + [kotak("3", 10, 50, 18, 68, "menu.cnt")]
 assert ke_json(_dgn_cnt, 400, 200)["item"][0]["jumlah"] == 3.0
 
+
+# --- 11. harga dari letak, saat model diam ---
+def _harga(kotak2):
+    return ke_json(kotak2, 400, 200)["item"][0]["harga"]
+
+
+_nama = [kotak("LIFEBUOY", 60, 50, 140, 68, "menu.nm"),
+         kotak("PELEMBAP", 145, 50, 225, 68, "menu.nm")]
+
+# a. kedua potongan jatuh ke O. Ini kasus COLGATE: model diam sama sekali.
+assert _harga(_nama + [kotak("10.", 280, 50, 310, 68),
+                       kotak("90", 312, 50, 340, 68)]) == 10.90
+
+# b. hanya potongan kanan yang dilabeli. Ini kasus LIFEBUOY di ponsel,
+#    yang menghasilkan 90,00 sebelum perbaikan ini.
+assert _harga(_nama + [kotak("10.", 280, 50, 310, 68),
+                       kotak("90", 312, 50, 340, 68, "menu.price")]) == 10.90
+
+# c. kode barang di KIRI nama tidak boleh dikira harga.
+assert _harga([kotak("5108", 18, 50, 50, 68)] + _nama
+              + [kotak("4.99", 280, 50, 320, 68)]) == 4.99
+
+# d. kolom kuantitas yang jauh tidak boleh ikut tertelan jadi 210,90.
+assert _harga(_nama + [kotak("2", 235, 50, 245, 68),
+                       kotak("10.90", 300, 50, 350, 68)]) == 10.90
+
+# e. kata bukan angka di kanan nama diabaikan.
+assert _harga(_nama + [kotak("KULI", 230, 50, 270, 68, "menu.nm"),
+                       kotak("4.99", 300, 50, 340, 68)]) == 4.99
+
+# f. tanpa kotak angka sama sekali, tetap kosong, bukan mengarang.
+assert _harga(_nama) is None
+
 print("semua uji lolos")

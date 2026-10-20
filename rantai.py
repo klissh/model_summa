@@ -196,6 +196,65 @@ def _angka_baris(bar, label):
     return _uang(t) if t.strip() else None
 
 
+_TANDA_ANGKA = set("0123456789.,-")
+
+
+def _mirip_uang(teks):
+    """Kotak yang isinya hanya angka dan tanda baca angka, boleh berlambang RM."""
+    s = (teks or "").strip().upper()
+    for buang in ("RM", "MYR", "$", " "):
+        s = s.replace(buang, "")
+    return bool(s) and any(c.isdigit() for c in s) and all(c in _TANDA_ANGKA for c in s)
+
+
+def _harga_baris(bar):
+    """Harga satu baris item, diambil dari kotak angka di kanan nama barang.
+
+    Ini aturan LETAK, bukan keluaran model. Alasannya terukur: pada struk 99
+    Speed Mart, CRAFT memotong "10.90" di titik desimalnya, dan model menolak
+    melabeli potongan "10 ." karena bentuk begitu tidak pernah dilihatnya saat
+    latih. Dari enam harga di struk itu hanya satu yang tidak terpotong, dan
+    hanya yang satu itu yang berhasil dilabeli menu.price.
+
+    Tiga pengaman, karena aturan letak gampang salah tangkap:
+
+    1. Hanya kotak di sebelah KANAN nama barang. Kolom kode barang (8049,
+       5108) juga angka dan sebaris, tetapi letaknya di kiri nama.
+    2. Potongan disatukan berdasar kedekatan mendatar, bukan asal gabung.
+       Kolom kuantitas letaknya jauh, jadi tidak ikut tertelan. Tanpa ini,
+       "2" dan "10.90" menyatu jadi 210,90.
+    3. Gugus yang memuat kotak menu.price dimenangkan. Model tetap didahulukan
+       kalau ia bersuara; letak hanya dipakai saat model diam.
+
+    Hanya menyentuh daftar item. Medan ringkasan tidak lewat sini, jadi angka
+    ketepatan di BAB IV tidak berubah.
+
+    bar harus sudah urut kiri ke kanan.
+    """
+    nama = [b for b in bar if b["_label"] == "menu.nm"]
+    if not nama:
+        return _angka_baris(bar, "menu.price")
+    batas = max(b["bbox"][2] for b in nama)
+    calon = [b for b in bar if b["bbox"][0] >= batas
+             and b["_label"] in ("O", "menu.price") and _mirip_uang(b["teks"])]
+    if not calon:
+        return _angka_baris(bar, "menu.price")
+
+    tin = sorted(max(1, b["bbox"][3] - b["bbox"][1]) for b in bar)
+    ambang = 0.6 * tin[len(tin) // 2]
+    gugus, kini = [], [calon[0]]
+    for b in calon[1:]:
+        if b["bbox"][0] - kini[-1]["bbox"][2] <= ambang:
+            kini.append(b)
+        else:
+            gugus.append(kini)
+            kini = [b]
+    gugus.append(kini)
+
+    pilih = next((g for g in gugus if any(b["_label"] == "menu.price" for b in g)), gugus[-1])
+    return _uang(" ".join(b["teks"] for b in pilih))
+
+
 def ke_json(kot, lebar, tinggi):
     """Kontrak JSON untuk aplikasi. Setiap nilai membawa keyakinannya sendiri."""
     def satu(label, angka=False):
@@ -227,7 +286,7 @@ def ke_json(kot, lebar, tinggi):
             # per barang. None membuat aplikasi menampilkan 0, yang salah.
             "jumlah": 1.0 if jml is None else jml,
             "harga_satuan": _angka_baris(bar, "menu.unitprice"),
-            "harga": _angka_baris(bar, "menu.price"),
+            "harga": _harga_baris(bar),
             "diskon": _angka_baris(bar, "menu.discountprice"),
             "yakin": round(min([b["_yakin"] for b in bar if b["_label"] != "O"] or [0.0]), 4),
         })
