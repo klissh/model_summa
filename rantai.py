@@ -97,6 +97,71 @@ def _uang(t):
     return -v if neg else v
 
 
+def _taksir_kemiringan(pusat, tinggi_med):
+    """Taksir kemiringan dominan struk dari sebaran titik tengah kotak.
+
+    Profil proyeksi: untuk sejumlah kemiringan calon, titik tengah tegak
+    diluruskan lalu dimasukkan ke laci. Kemiringan yang benar membuat titik
+    menggerombol di sedikit laci, jadi jumlah kuadrat isi laci paling besar.
+    Calon diurut dari yang paling dekat nol, supaya seri dimenangkan nol.
+    """
+    lebar_laci = max(1.0, tinggi_med / 2.0)
+
+    def nilai(m):
+        laci = collections.Counter(int((y - m * x) // lebar_laci) for x, y in pusat)
+        return sum(c * c for c in laci.values())
+
+    terbaik, nilai_terbaik = 0.0, nilai(0.0)
+    for k in sorted(range(-70, 71), key=lambda z: (abs(z), z)):
+        m = k * 0.005
+        v = nilai(m)
+        if v > nilai_terbaik:
+            nilai_terbaik, terbaik = v, m
+    # Kemiringan sungguhan menggerombolkan jauh lebih rapat daripada nol.
+    # Tanpa ambang ini, sebaran acak pun menang tipis dan baris yang benar
+    # malah dibelah.
+    return terbaik if nilai_terbaik > 1.05 * nilai(0.0) else 0.0
+
+
+def kelompok_baris(kot):
+    """Nomor baris tiap kotak, tahan terhadap struk yang terfoto miring.
+
+    BUKAN salinan Notebook E. Di sana penyusunan item memakai urut_baca(),
+    yang syarat tumpang tindih tegaknya pecah di atas kira-kira 3 derajat:
+    satu baris struk terbelah dua, sehingga nama barang lepas dari harganya.
+    Pindaian SROIE hampir datar jadi tidak pernah kena, foto dari tangan
+    selalu kena.
+
+    Hanya dipakai untuk menyusun daftar item. Urutan token yang masuk ke
+    LayoutLMv3 tetap dari urut_baca() dan tidak boleh ikut diubah, karena
+    harus sama persis dengan saat model dilatih.
+    """
+    if not kot:
+        return []
+    tinggi = sorted(max(1, b["bbox"][3] - b["bbox"][1]) for b in kot)
+    tinggi_med = tinggi[len(tinggi) // 2]
+    pusat = [((b["bbox"][0] + b["bbox"][2]) / 2.0,
+              (b["bbox"][1] + b["bbox"][3]) / 2.0) for b in kot]
+    # Profil proyeksi butuh kotak yang banyak. Struk sungguhan punya sekitar
+    # 97 kotak (kalibrasi Notebook A1), jadi ambang ini longgar di praktik.
+    m = _taksir_kemiringan(pusat, tinggi_med) if len(kot) >= 20 else 0.0
+
+    datar = sorted((y - m * x, i) for i, (x, y) in enumerate(pusat))
+    ambang = 0.6 * tinggi_med
+    id_baris = [0] * len(kot)
+    r, jumlah, n = 0, 0.0, 0
+    for y, i in datar:
+        # Dibandingkan dengan rata-rata baris berjalan, bukan dengan anggota
+        # terakhir, supaya kotak tidak merembet menyambung baris demi baris.
+        if n and y - jumlah / n > ambang:
+            r += 1
+            jumlah, n = 0.0, 0
+        jumlah += y
+        n += 1
+        id_baris[i] = r
+    return id_baris
+
+
 def _gabung(kot, label):
     """Gabungkan kotak berlabel sama yang bersebelahan jadi satu entitas."""
     out, kini = [], None
@@ -126,14 +191,19 @@ def ke_json(kot, lebar, tinggi):
         nilai = _uang(e["teks"]) if angka else e["teks"]
         return {"teks": e["teks"], "nilai": nilai, "yakin": e["yakin"], "bbox": e["bbox"]}
 
-    # item disusun per baris, karena satu baris struk adalah satu item
-    _, id_baris = urut_baca(kot)
+    # item disusun per baris, karena satu baris struk adalah satu item.
+    # Barisnya ditaksir ulang di sini, tidak memakai urut_baca(), supaya
+    # struk yang terfoto miring tidak terbelah. Lihat kelompok_baris().
+    # Ini satu-satunya penyimpangan dari Notebook E, dan hanya menyentuh
+    # daftar item. Medan ringkasan di bawah memakai _gabung() atas urutan
+    # kot yang tidak berubah, jadi angka ketepatan di BAB IV tetap berlaku.
+    id_baris = kelompok_baris(kot)
     per_baris = collections.defaultdict(list)
     for b, r in zip(kot, id_baris):
         per_baris[r].append(b)
     item = []
     for r in sorted(per_baris):
-        bar = per_baris[r]
+        bar = sorted(per_baris[r], key=lambda z: z["bbox"][0])
         nm = " ".join(b["teks"] for b in bar if b["_label"] == "menu.nm")
         hr = [b for b in bar if b["_label"] == "menu.price"]
         if not (nm or hr): continue

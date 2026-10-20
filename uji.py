@@ -9,6 +9,7 @@ from rantai import (
     ekstensi_gambar,
     ke_json,
     ke_kontrak_aplikasi,
+    kelompok_baris,
     norm_bbox,
     normalisasi_angka,
     urut_baca,
@@ -91,5 +92,36 @@ assert ekstensi_gambar("JPEG") == ".jpg"
 assert ekstensi_gambar("PNG") == ".png"
 assert ekstensi_gambar(None) is None
 assert ekstensi_gambar("GIF") is None, "format tak didukung harus ditolak, bukan ditebak"
+
+# --- 8. struk miring: nama barang tidak boleh lepas dari harganya ---
+# urut_baca() pecah di atas kira-kira 3 derajat. kelompok_baris() tidak boleh.
+N_BARIS = 8
+
+
+def _struk_miring(kemiringan):
+    kot = []
+    for r in range(N_BARIS):
+        y = 50 + r * 30
+        for teks, x0, x1, label in [("ROTI", 20, 90, "menu.nm"),
+                                    ("TAWAR", 100, 180, "menu.nm"),
+                                    (f"{r + 1}.50", 240, 300, "menu.price")]:
+            geser = int(x0 * kemiringan)
+            kot.append(kotak(teks, x0, y + geser, x1, y + geser + 18, label))
+    return kot
+
+
+for _m in [0.0, 0.05, 0.10, 0.15]:
+    _kot = _struk_miring(_m)
+    _r = kelompok_baris(_kot)
+    assert len(set(_r)) == N_BARIS, f"miring {_m}: {len(set(_r))} baris"
+    _h = ke_json(_kot, 400, 350)
+    assert len(_h["item"]) == N_BARIS, f"miring {_m}: {len(_h['item'])} item"
+    assert [i["harga"] for i in _h["item"]] == [r + 1.5 for r in range(N_BARIS)], _h["item"]
+    # Urutan kata dalam satu baris harus kiri ke kanan, bukan tercampur baris lain.
+    assert all(i["nama"] == "ROTI TAWAR" for i in _h["item"]), _h["item"]
+
+# Pembanding: cara lama memang rusak, jadi uji di atas bukan uji kosong.
+assert len(set(urut_baca(_struk_miring(0.10))[1])) != N_BARIS, \
+    "urut_baca ternyata tahan miring, alasan kelompok_baris gugur"
 
 print("semua uji lolos")
