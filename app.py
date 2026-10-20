@@ -234,7 +234,10 @@ async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
     # kesalahan agregasi, yang tanpa ini hanya bisa ditebak dari hasil akhir.
     # Aplikasi tidak memintanya, jadi muatan jawaban sehari-hari tidak berubah.
     if rinci:
+        # yakin TIDAK dibulatkan. ke_json memilih entitas lewat max(yakin),
+        # jadi pembulatan bisa mengubah pemenang saat dua entitas berdekatan,
+        # dan hasil putar ulang di luar server tidak lagi sama dengan server.
         jawab["kotak"] = [{"teks": b["teks"], "bbox": b["bbox"],
-                           "label": b["_label"], "yakin": round(b["_yakin"], 3)}
+                           "label": b["_label"], "yakin": b["_yakin"]}
                           for b in kot]
     return jawab
