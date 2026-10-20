@@ -89,10 +89,19 @@ def main():
         d = gold[k]
         jalur = os.path.join(a.akar, d.get("nama_file_disk") or d["nama_file"])
         t0 = time.perf_counter()
-        try:
-            r = kirim(a.server, a.kunci, jalur)
-        except Exception as e:
-            print(f"{k:26s}   GAGAL  {type(e).__name__}: {str(e)[:60]}")
+        r = None
+        for percobaan in range(2):
+            try:
+                r = kirim(a.server, a.kunci, jalur)
+                break
+            except Exception as e:
+                galat = f"{type(e).__name__}: {str(e)[:50]}"
+                # Kontainer yang mati kehabisan memori perlu waktu menyala lagi,
+                # dan tanpa jeda satu kegagalan merembet ke seluruh sisa struk.
+                if percobaan == 0:
+                    time.sleep(20)
+        if r is None:
+            print(f"{k:26s}   GAGAL  {galat}")
             continue
         dtk = time.perf_counter() - t0
         waktu.append(dtk)
