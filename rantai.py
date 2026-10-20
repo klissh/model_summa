@@ -303,6 +303,8 @@ def ke_json(kot, lebar, tinggi):
         "pembulatan": satu("sub_total.etc", angka=True),
         "total": satu("total.total_price", angka=True),
         "tunai": satu("total.cashprice", angka=True),
+        "kartu": satu("total.creditcardprice", angka=True),
+        "emoney": satu("total.emoneyprice", angka=True),
         "kembalian": satu("total.changeprice", angka=True),
         "ukuran_gambar": {"lebar": lebar, "tinggi": tinggi},
     }
@@ -333,6 +335,16 @@ MEDAN_RINGKASAN = {
     "total": "total.total_price",
     "tunai": "total.cashprice",
     "kembalian": "total.changeprice",
+    # Skema anotasi punya dua cara bayar nontunai, tetapi sebelumnya keduanya
+    # dibuang di sini sehingga tidak pernah sampai ke aplikasi. Akibatnya
+    # struk DuitNow QR terlihat seperti dibayar tunai.
+    # Jarang di data: emoney 7 struk, kartu 13 struk, dari 162. Jadi model
+    # memang jarang meramalkannya, tetapi membuangnya membuat yang sedikit
+    # itu pun pasti hilang.
+    # Tidak mengubah angka ketepatan: ukur_server.py mengukur delapan medan
+    # yang didaftarnya sendiri, dan tunai tetap dipetakan ke cashprice.
+    "kartu": "total.creditcardprice",
+    "emoney": "total.emoneyprice",
 }
 
 

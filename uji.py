@@ -65,7 +65,8 @@ assert abs(h["subtotal"]["nilai"] + h["pajak"]["nilai"] - h["total"]["nilai"]) <
 # --- 5. bentuk yang dikirim ke aplikasi harus cocok dengan tipe.ts ---
 app = ke_kontrak_aplikasi(h, kot, "uji1", "model-uji")
 assert set(app) == {"id", "versiModel", "toko", "tanggal", "jam", "item", "ringkasan"}, set(app)
-assert set(app["ringkasan"]) == {"subtotal", "pajak", "total", "tunai", "kembalian"}
+assert set(app["ringkasan"]) == {"subtotal", "pajak", "total", "tunai",
+                                 "kartu", "emoney", "kembalian"}, set(app["ringkasan"])
 for nama, m in app["ringkasan"].items():
     assert set(m) == {"nilai", "teks", "keyakinan", "asal"}, (nama, set(m))
 assert set(app["item"][0]) == {"id", "nama", "jumlah", "hargaSatuan", "harga", "keyakinan"}
