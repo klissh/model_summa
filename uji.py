@@ -6,6 +6,7 @@ urutan baca, dan bentuk JSON yang dikirim ke aplikasi.
 """
 
 from rantai import (
+    _uang,
     ekstensi_gambar,
     ke_json,
     ke_kontrak_aplikasi,
@@ -24,6 +25,17 @@ def kotak(teks, x0, y0, x1, y1, label="O", yakin=0.9, dari_aturan=False):
 # --- 1. normalisasi, sama dengan assert di Notebook A sel 5 ---
 for a, b in [("3,50", "3.50"), ("1,200", "1,200"), ("14:03", "14:03"), ("Nasi", "Nasi")]:
     assert normalisasi_angka(a) == b, (a, normalisasi_angka(a), b)
+
+# --- 1b. _uang: titik di ujung bukan pemisah desimal ---
+# Tiga baris pertama dulu menghasilkan nilai salah yang percaya diri, dan
+# 2725,0 memang tercatat sebagai kegagalan di G7. Sisanya ada di sini supaya
+# tambalan rstrip(".") terbukti tidak menyentuh yang sudah benar.
+for _t, _v in [("04.36.;", 4.36), ("27.25.", 27.25), ("12.50.", 12.5),
+               ("6.35", 6.35), ("0.50", 0.50), ("170", 170.0),
+               ("1.234.56", 1234.56), ("87.55", 87.55), ("100.00", 100.0),
+               (".75", 0.75), ("12-", -12.0), ("RM 5.00", 5.0),
+               (".", None), ("", None), (None, None)]:
+    assert _uang(_t) == _v, (_t, _uang(_t), _v)
 
 # --- 2. urutan baca dan normalisasi bbox ---
 assert norm_bbox([450, 800, 900, 1600], 900, 1600) == [500, 500, 1000, 1000]

@@ -87,6 +87,10 @@ def _uang(t):
     s = _re.sub(r"[^0-9.\-]", "", s)
     neg = s.endswith("-") or s.startswith("-")
     s = s.strip("-")
+    # Titik di ujung itu sisa tanda baca OCR, bukan pemisah desimal. Tanpa ini
+    # "04.36.;" jadi 436,0 dan "27.25." jadi 2725,0, yaitu nilai salah yang
+    # percaya diri. 2725,0 memang tercatat sebagai kegagalan di G7.
+    s = s.rstrip(".")
     if s.count(".") > 1:
         i = s.rfind("."); s = s[:i].replace(".", "") + s[i:]
     if s in ("", "."): return None
