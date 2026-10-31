@@ -54,6 +54,13 @@ _bar = [kotak("823", 20, 800, 90, 835, "menu.num"),
         kotak("99", 805, 795, 845, 835)]
 assert _harga_baris(_bar) == 10.99, _harga_baris(_bar)
 
+# Cacat deteksi di tepi kertas: kotak setinggi 563 piksel di baris setinggi 78
+# terbaca "0" dan letaknya paling kanan, jadi ia memenangkan aturan gugus
+# terkanan dan harga Colgate jadi 0,0. Angka bbox diambil apa adanya dari
+# struk 99 Speed Mart 20 Okt 2026.
+_bar_cacat = _bar + [kotak("0", 1944, 1344, 2088, 1907)]
+assert _harga_baris(_bar_cacat) == 10.99, _harga_baris(_bar_cacat)
+
 # --- 2. urutan baca dan normalisasi bbox ---
 assert norm_bbox([450, 800, 900, 1600], 900, 1600) == [500, 500, 1000, 1000]
 _k = [kotak("A", 10, 10, 50, 25), kotak("B", 55, 10, 110, 25), kotak("C", 10, 40, 50, 55)]

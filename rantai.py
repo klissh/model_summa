@@ -226,14 +226,21 @@ def _harga_baris(bar):
     latih. Dari enam harga di struk itu hanya satu yang tidak terpotong, dan
     hanya yang satu itu yang berhasil dilabeli menu.price.
 
-    Tiga pengaman, karena aturan letak gampang salah tangkap:
+    Empat pengaman, karena aturan letak gampang salah tangkap:
 
     1. Hanya kotak di sebelah KANAN nama barang. Kolom kode barang (8049,
        5108) juga angka dan sebaris, tetapi letaknya di kiri nama.
     2. Potongan disatukan berdasar kedekatan mendatar, bukan asal gabung.
        Kolom kuantitas letaknya jauh, jadi tidak ikut tertelan. Tanpa ini,
        "2" dan "10.90" menyatu jadi 210,90.
-    3. Gugus yang memuat kotak menu.price dimenangkan. Model tetap didahulukan
+    3. Kotak yang tingginya lebih dari enam kali teks sebaris dibuang. Cacat
+       deteksi di tepi kertas bisa setinggi 7,2 baris dan terbaca "0".
+       Batasnya sengaja longgar: 6,0 adalah nilai terlonggar yang masih
+       membuang cacat itu, dan atas 43 struk ia tidak mengubah satu pun
+       harga item lain.
+       Letaknya paling kanan, jadi tanpa saringan ini ia memenangkan
+       pengaman nomor 4 dan harga Colgate jadi 0,0.
+    4. Gugus yang memuat kotak menu.price dimenangkan. Model tetap didahulukan
        kalau ia bersuara; letak hanya dipakai saat model diam.
 
     Hanya menyentuh daftar item. Medan ringkasan tidak lewat sini, jadi angka
@@ -245,13 +252,18 @@ def _harga_baris(bar):
     if not nama:
         return _angka_baris(bar, "menu.price")
     batas = max(b["bbox"][2] for b in nama)
+    tin = sorted(max(1, b["bbox"][3] - b["bbox"][1]) for b in bar)
+    tinggi_med = tin[len(tin) // 2]
     calon = [b for b in bar if b["bbox"][0] >= batas
-             and b["_label"] in ("O", "menu.price") and _mirip_uang(b["teks"])]
+             and b["_label"] in ("O", "menu.price") and _mirip_uang(b["teks"])
+             # shortcut: nisbah kasar, cuma menangkap cacat yang sangat besar;
+             # naikkan ke aturan tumpang tindih pita baris kalau nanti sudah
+             # ada jawaban benar tingkat item untuk mengukurnya.
+             and 0.2 * tinggi_med <= max(1, b["bbox"][3] - b["bbox"][1]) <= 6.0 * tinggi_med]
     if not calon:
         return _angka_baris(bar, "menu.price")
 
-    tin = sorted(max(1, b["bbox"][3] - b["bbox"][1]) for b in bar)
-    ambang = 0.6 * tin[len(tin) // 2]
+    ambang = 0.6 * tinggi_med
     gugus, kini = [], [calon[0]]
     for b in calon[1:]:
         if b["bbox"][0] - kini[-1]["bbox"][2] <= ambang:
