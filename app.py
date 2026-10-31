@@ -18,6 +18,7 @@ from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from PIL import Image
 
 import pembanding_aturan as PA
+import pisah_tahap
 import rantai
 from hibrida_penengah import SET_ATURAN_MENANG, penengah
 
@@ -76,21 +77,14 @@ def ocr_mentah(jalur):
     return kotak
 
 
-def jalankan(jalur):
-    """Foto masuk, JSON terstruktur keluar. Kembalikan (hasil, waktu)."""
-    w = {}
+def _labeli(img, L, T, kotak, w):
+    """Dari kotak OCR jadi JSON: LayoutLMv3, penengah hibrida, lalu perakitan.
 
-    t = time.perf_counter()
-    img = Image.open(jalur).convert("RGB")
-    L, T = img.size
-    w["1_baca_gambar"] = time.perf_counter() - t
+    Dipisah dari jalankan() supaya jalur penyelamat bisa memakainya kembali
+    atas kumpulan kotak yang lain, tanpa menyalin isinya.
 
-    t = time.perf_counter()
-    kotak = ocr_mentah(jalur)
-    w["2_ocr"] = time.perf_counter() - t
-    if not kotak:
-        return None, w
-
+    Kembalikan (hasil, kot, n_jendela).
+    """
     # Urutan di sini penting. Model memakai urut_baca(), aturan memakai urutan
     # asli. kot berisi objek dict yang sama dengan kotak, hanya diurutkan ulang,
     # jadi label yang ditempel ke objek terbaca dari kedua urutan.
@@ -170,9 +164,46 @@ def jalankan(jalur):
     # PA.prediksi memang jadi dipanggil dua kali, di sini dan di dalam
     # penambalan. Biayanya puluhan milidetik atas rantai yang 7 detik.
     hasil = rantai.ke_json_lengkap(kot, L, T)
+    return hasil, kot, n_jendela
+
+
+def jalankan(jalur):
+    """Foto masuk, JSON terstruktur keluar. Kembalikan (hasil, waktu)."""
+    w = {}
+
+    t = time.perf_counter()
+    img = Image.open(jalur).convert("RGB")
+    L, T = img.size
+    w["1_baca_gambar"] = time.perf_counter() - t
+
+    t = time.perf_counter()
+    kotak = ocr_mentah(jalur)
+    w["2_ocr"] = time.perf_counter() - t
+    if not kotak:
+        return None, w
+
+    hasil, kot, n_jendela = _labeli(img, L, T, kotak, w)
+
+    # Jalur penyelamat, hanya saat TIDAK SATU PUN item dapat harga. Hasilnya
+    # dipakai cuma kalau item berharganya lebih banyak, jadi struk yang sudah
+    # jalan tidak bisa menjadi lebih buruk karena jalur ini. Lihat
+    # pisah_tahap.py untuk angka dan alasannya.
+    dipakai = False
+    if pisah_tahap.perlu(hasil):
+        t = time.perf_counter()
+        img2, kotak2 = pisah_tahap.ocr(jalur, pembaca)
+        w["7_penyelamat_ocr"] = time.perf_counter() - t
+        if kotak2:
+            w2 = {}
+            hasil2, kot2, nj2 = _labeli(img2, img2.size[0], img2.size[1], kotak2, w2)
+            w["8_penyelamat_rantai"] = sum(w2.values())
+            if pisah_tahap.n_harga_item(hasil2) > pisah_tahap.n_harga_item(hasil):
+                hasil, kot, n_jendela, dipakai = hasil2, kot2, nj2, True
+
     w["total"] = sum(v for k, v in w.items() if k != "total")
     w["n_kotak"] = len(kot)
     w["n_jendela"] = n_jendela
+    w["penyelamat"] = dipakai
     return (hasil, kot), w
 
 

@@ -285,4 +285,45 @@ _subway = [
 assert ke_json_lengkap(_subway, 300, 100)["subtotal"] is None, \
     "SUBWAY tertangkap sebagai baris subtotal"
 
+# === 9. pisah_tahap: geometri dan pemicu ===
+# EasyOCR tidak dipanggil di sini, jadi uji ini tetap cepat. Yang diperiksa
+# bagian yang bisa salah sendiri: penaksir sudut, pita teks, dan pemicunya.
+import numpy as _np  # noqa: E402
+
+import pisah_tahap as _PT  # noqa: E402
+
+# Gambar buatan: lima baris teks mendatar di tengah kertas putih.
+_g = _np.full((200, 300), 240, _np.uint8)
+for _y in range(30, 180, 30):
+    _g[_y:_y + 8, 80:220] = 20
+_m = _PT._peta_teks(_g)
+_x0, _x1 = _PT._pita_teks(_m)
+# Pita harus jatuh di sekitar tulisan, bukan selebar gambar.
+assert 60 <= _x0 <= 95 and 205 <= _x1 <= 245, (_x0, _x1)
+# Sudah mendatar, jadi sudut terbaiknya nol.
+assert abs(_PT._sudut(_m, _x0, _x1)) <= 0.25, _PT._sudut(_m, _x0, _x1)
+
+# Gambar yang sama dimiringkan 3 derajat harus menghasilkan taksiran -3,
+# yaitu putaran yang mengembalikannya jadi mendatar.
+import cv2 as _cv  # noqa: E402
+
+_miring = _cv.warpAffine(_g, _cv.getRotationMatrix2D((150.0, 100.0), 3.0, 1.0),
+                         (300, 200), borderValue=240)
+_mm = _PT._peta_teks(_miring)
+_a0, _a1 = _PT._pita_teks(_mm)
+assert abs(_PT._sudut(_mm, _a0, _a1) + 3.0) <= 0.5, _PT._sudut(_mm, _a0, _a1)
+
+# Kertas kosong tidak boleh membuat _pita_teks melempar atau memberi pita nol.
+_kosong = _PT._peta_teks(_np.full((50, 60), 200, _np.uint8))
+_k0, _k1 = _PT._pita_teks(_kosong)
+assert _k1 > _k0
+
+# Pemicu: menyala HANYA kalau tidak satu pun item berharga.
+assert _PT.n_harga_item({"item": [{"harga": 1.5}, {"harga": None}]}) == 1
+assert _PT.n_harga_item({"item": [{"harga": True}]}) == 0      # bool bukan harga
+assert _PT.perlu({"item": [{"harga": None}, {"harga": None}]})
+assert _PT.perlu({"item": []})
+assert not _PT.perlu({"item": [{"harga": 0.6}]})
+assert not _PT.perlu(None)
+
 print("semua uji lolos")
