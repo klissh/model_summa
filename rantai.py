@@ -200,8 +200,10 @@ def _angka_baris(bar, label):
 
     bar harus sudah urut kiri ke kanan.
     """
-    t = " ".join(b["teks"] for b in bar if b["_label"] == label)
-    return _uang(t) if t.strip() else None
+    pot = [b["teks"] for b in bar if b["_label"] == label]
+    # _uang_potongan, bukan _uang: potongannya satu bilangan yang CRAFT pecah,
+    # jadi titik desimal yang hilang atau terbaca koma masih bisa dipulihkan.
+    return _uang_potongan(pot) if any((x or "").strip() for x in pot) else None
 
 
 # Garis bawah ikut, sebab pengenal huruf memberi "10 _" untuk "10.". Tanpa itu
@@ -274,7 +276,7 @@ def _harga_baris(bar):
     gugus.append(kini)
 
     pilih = next((g for g in gugus if any(b["_label"] == "menu.price" for b in g)), gugus[-1])
-    return _uang(" ".join(b["teks"] for b in pilih))
+    return _uang_potongan([b["teks"] for b in pilih])
 
 
 def ke_json(kot, lebar, tinggi):

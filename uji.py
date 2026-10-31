@@ -61,6 +61,28 @@ assert _harga_baris(_bar) == 10.99, _harga_baris(_bar)
 _bar_cacat = _bar + [kotak("0", 1944, 1344, 2088, 1907)]
 assert _harga_baris(_bar_cacat) == 10.99, _harga_baris(_bar_cacat)
 
+# --- 1d. harga item lewat _uang_potongan, bukan _uang ---
+# Struk Lotus's: harga dua desimal terpecah dan pemisahnya terbaca koma, jadi
+# "2," + "40" dulu jadi 240,0. Diukur atas 43 struk: 38 harga item berubah,
+# dan jumlah item yang cocok subtotal gold naik dari 5 jadi 8, nol memburuk.
+_bar_koma = [kotak("0955", 20, 800, 90, 835, "menu.num"),
+             kotak("FRESHZY", 100, 800, 300, 835, "menu.nm"),
+             kotak("2,", 740, 795, 790, 835),
+             kotak("40", 795, 795, 845, 835)]
+assert _harga_baris(_bar_koma) == 2.40, _harga_baris(_bar_koma)
+
+# Titik desimal hilang sama sekali: dipulihkan dari dua angka ekor.
+_bar_hilang = [kotak("0955", 20, 800, 90, 835, "menu.num"),
+               kotak("BIOZIP", 100, 800, 300, 835, "menu.nm"),
+               kotak("8", 740, 795, 780, 835),
+               kotak("70", 790, 795, 845, 835)]
+assert _harga_baris(_bar_hilang) == 8.70, _harga_baris(_bar_hilang)
+
+# Tanpa menu.nm jalurnya lewat _angka_baris, dan itu pun harus ikut.
+_bar_tanpa_nama = [kotak("2,", 740, 795, 790, 835, "menu.price"),
+                   kotak("40", 795, 795, 845, 835, "menu.price")]
+assert _harga_baris(_bar_tanpa_nama) == 2.40, _harga_baris(_bar_tanpa_nama)
+
 # --- 2. urutan baca dan normalisasi bbox ---
 assert norm_bbox([450, 800, 900, 1600], 900, 1600) == [500, 500, 1000, 1000]
 _k = [kotak("A", 10, 10, 50, 25), kotak("B", 55, 10, 110, 25), kotak("C", 10, 40, 50, 55)]
