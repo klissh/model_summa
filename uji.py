@@ -227,6 +227,14 @@ assert _uang_potongan(["170"]) == 170.0
 assert _uang_potongan(["1.50"]) == 1.50
 # c. gabungan yang tidak masuk akal menghasilkan None, bukan angka ngawur
 assert _uang_potongan(["123", "73", "Q0"]) is None
+# d. koma atau petik di SAMBUNGAN itu titik desimal, bukan pemisah ribuan
+assert _uang_potongan(["2,", "40"]) == 2.40
+assert _uang_potongan(["10 ,", "55"]) == 10.55
+assert _uang_potongan(["8", ",59"]) == 8.59
+assert _uang_potongan(["8", "'99"]) == 8.99
+assert _uang_potongan(["10 _", "29"]) == 10.29   # garis bawah lewat _uang
+# pemisah ribuan ada di DALAM satu potongan, jadi tidak boleh ikut berubah
+assert _uang_potongan(["1,234.50"]) == 1234.50
 
 # d. harga bukan jam. Cacat ini pernah ada dan menaruh 7,95 di medan jam.
 assert not _POLA_JAM.match("7.95")

@@ -457,21 +457,34 @@ _KATA_MEDAN = {"subtotal": ("SUBT", "AMOUNT"),
                "pajak": ("GST", "SST", "TAX", "CUKAI")}
 
 
+_SAMBUNG = ",'`\u2019"
+
+
 def _uang_potongan(potong):
     """Angkakan potongan satu bilangan, tahan titik desimal yang tidak terbaca.
 
     "2 ." + "05" jadi 2.05, titiknya terbaca dan _uang sudah cukup.
     "56" + "95"  jadi 56.95, titiknya hilang lalu dipulihkan dari angka ekor.
+    "2,"  + "40" jadi 2.40, komanya di sambungan jadi itu titik desimal.
 
     Pemulihan ekor hanya saat ada dua potongan atau lebih dan tidak satu pun
     memuat titik atau koma, supaya bilangan utuh "170" tidak jadi 1,70.
     """
-    teks = " ".join(p for p in potong if p)
+    p = [x for x in ((q or "").strip() for q in potong) if x]
+    # Koma atau petik di SAMBUNGAN antarpotongan itu titik desimal yang salah
+    # terbaca. Pemisah ribuan tidak pernah di sambungan, ia selalu di dalam satu
+    # potongan, jadi "1,234" + "56" tidak tersentuh.
+    for i in range(len(p) - 1):
+        if p[i][-1] in _SAMBUNG:
+            p[i] = p[i][:-1] + "."
+        if p[i + 1][0] in _SAMBUNG:
+            p[i + 1] = "." + p[i + 1][1:]
+    teks = " ".join(p)
     v = _uang(teks)
-    if len(potong) >= 2 and not any(c in ".," for c in teks):
-        ekor = (potong[-1] or "").strip()
+    if len(p) >= 2 and not any(c in ".," for c in teks):
+        ekor = p[-1]
         if len(ekor) == 2 and ekor.isdigit():
-            kepala = _uang(" ".join(potong[:-1]))
+            kepala = _uang(" ".join(p[:-1]))
             if kepala is not None:
                 return kepala + int(ekor) / 100.0
     return v
