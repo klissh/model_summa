@@ -83,6 +83,10 @@ def _uang(t):
     """Ubah teks jadi angka. Tahan spasi liar, minus di belakang, huruf tertukar."""
     if t is None: return None
     s = str(t).strip().upper().replace("RM", "").replace("MYR", "").replace("$", "").replace(" ", "")
+    # Garis bawah itu titik desimal yang salah dibaca pengenal huruf: "10.99"
+    # keluar sebagai "10 _" lalu "99". Tanpa pemetaan ini keduanya disaring
+    # habis dan harga barangnya jadi 99,0.
+    s = s.replace("_", ".")
     s = s.replace("O", "0").replace("I", "1").replace("L", "1").replace(",", "")
     s = _re.sub(r"[^0-9.\-]", "", s)
     neg = s.endswith("-") or s.startswith("-")
@@ -200,7 +204,9 @@ def _angka_baris(bar, label):
     return _uang(t) if t.strip() else None
 
 
-_TANDA_ANGKA = set("0123456789.,-")
+# Garis bawah ikut, sebab pengenal huruf memberi "10 _" untuk "10.". Tanpa itu
+# potongan kiri sebuah harga ditolak di sini dan tidak pernah disatukan lagi.
+_TANDA_ANGKA = set("0123456789.,-_")
 
 
 def _mirip_uang(teks):

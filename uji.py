@@ -6,6 +6,8 @@ urutan baca, dan bentuk JSON yang dikirim ke aplikasi.
 """
 
 from rantai import (
+    _harga_baris,
+    _mirip_uang,
     _uang,
     ekstensi_gambar,
     ke_json,
@@ -36,6 +38,21 @@ for _t, _v in [("04.36.;", 4.36), ("27.25.", 27.25), ("12.50.", 12.5),
                (".75", 0.75), ("12-", -12.0), ("RM 5.00", 5.0),
                (".", None), ("", None), (None, None)]:
     assert _uang(_t) == _v, (_t, _uang(_t), _v)
+
+# --- 1c. garis bawah itu titik desimal yang salah terbaca ---
+# Struk 99 Speed Mart 20 Okt 2026: EasyOCR memberi "10.99" sebagai dua kotak,
+# "10 _" lalu "99". Sebelum ini _mirip_uang menolak potongan kirinya, jadi
+# _harga_baris cuma melihat "99" dan harga Colgate tercatat 99,0.
+for _t, _v in [("10 _", 10.0), ("10 _ 99", 10.99), ("3 _ 99", 3.99), ("_", None)]:
+    assert _uang(_t) == _v, (_t, _uang(_t), _v)
+assert _mirip_uang("10 _") and _mirip_uang("99") and not _mirip_uang("RM")
+
+_bar = [kotak("823", 20, 800, 90, 835, "menu.num"),
+        kotak("COLGATE", 100, 800, 300, 835, "menu.nm"),
+        kotak("RM", 600, 800, 650, 835),
+        kotak("10 _", 740, 795, 800, 835),
+        kotak("99", 805, 795, 845, 835)]
+assert _harga_baris(_bar) == 10.99, _harga_baris(_bar)
 
 # --- 2. urutan baca dan normalisasi bbox ---
 assert norm_bbox([450, 800, 900, 1600], 900, 1600) == [500, 500, 1000, 1000]
