@@ -87,7 +87,13 @@ def _uang(t):
     # keluar sebagai "10 _" lalu "99". Tanpa pemetaan ini keduanya disaring
     # habis dan harga barangnya jadi 99,0.
     s = s.replace("_", ".")
-    s = s.replace("O", "0").replace("I", "1").replace("L", "1").replace(",", "")
+    s = s.replace("O", "0").replace("I", "1").replace("L", "1")
+    # Koma dengan TEPAT dua angka di ujung itu titik desimal yang salah
+    # terbaca: pengenal huruf memberi "8, 00" untuk "8.00". Pemisah ribuan
+    # selalu mengelompokkan tiga angka, jadi "1,234" dan "1,250" tidak
+    # tersentuh, sedangkan "8,00" dan "1,234,50" dipulihkan.
+    s = _re.sub(r",(\d{2})$", r".\1", s)
+    s = s.replace(",", "")
     s = _re.sub(r"[^0-9.\-]", "", s)
     neg = s.endswith("-") or s.startswith("-")
     s = s.strip("-")
@@ -279,6 +285,52 @@ def _harga_baris(bar):
     return _uang_potongan([b["teks"] for b in pilih])
 
 
+def _buang_barcode(nm):
+    """Buang barcode yang menempel di depan nama barang.
+
+    Pengenal huruf kadang menyatukan kolom kode dengan kolom nama jadi satu
+    kotak, dan kotak gabungan cuma bisa dapat satu label. Pada struk Lotus's
+    13 dari 14 kode terlabeli menu.num dan terbuang benar; yang satu bocor
+    karena tergabung, lalu muncul sebagai "08993175566438 NABAT I" di nama.
+
+    Dua huruf salah baca dimaafkan, sebab "48a555149276688" juga barcode.
+    Barcode EAN panjangnya 12 sampai 14 angka, dan nama barang tidak pernah
+    diawali kata sepanjang itu yang isinya hampir semua angka.
+    """
+    pot = nm.split()
+    if not pot:
+        return ""
+    kepala = pot[0].strip("\"'`~_-.,")
+    if len(kepala) >= 12 and sum(c.isdigit() for c in kepala) >= len(kepala) - 2:
+        return " ".join(pot[1:]).strip()
+    return nm.strip()
+
+
+def _satukan_dua_baris(item):
+    """Satukan baris nama yang kosong angka dengan baris angka yang kosong nama.
+
+    Sebagian struk, seperti LOGAM M&A Enterprise, mencetak nama barang di
+    baris sendiri lalu kode, kuantitas dan harganya di baris berikutnya.
+    Pengelompokan per baris memisahkan keduanya jadi dua item setengah jadi.
+
+    Syaratnya sengaja ketat: baris atas harus punya nama DAN tidak punya satu
+    pun angka uang, baris bawah harus punya harga DAN tidak punya nama. Struk
+    satu baris seperti Lotus's dan 99 Speed Mart tidak pernah memenuhi ini.
+    """
+    out = []
+    for it in item:
+        atas = out[-1] if out else None
+        if (atas is not None and it["nama"] is None and it["harga"] is not None
+                and atas["nama"] is not None and atas["harga"] is None
+                and atas["harga_satuan"] is None and atas["diskon"] is None):
+            for k in ("jumlah", "harga_satuan", "harga", "diskon"):
+                atas[k] = it[k]
+            atas["yakin"] = min(atas["yakin"], it["yakin"])
+            continue
+        out.append(it)
+    return out
+
+
 def ke_json(kot, lebar, tinggi):
     """Kontrak JSON untuk aplikasi. Setiap nilai membawa keyakinannya sendiri."""
     def satu(label, angka=False):
@@ -301,7 +353,7 @@ def ke_json(kot, lebar, tinggi):
     item = []
     for r in sorted(per_baris):
         bar = sorted(per_baris[r], key=lambda z: z["bbox"][0])
-        nm = " ".join(b["teks"] for b in bar if b["_label"] == "menu.nm")
+        nm = _buang_barcode(" ".join(b["teks"] for b in bar if b["_label"] == "menu.nm"))
         if not (nm or any(b["_label"] == "menu.price" for b in bar)): continue
         jml = _angka_baris(bar, "menu.cnt")
         item.append({
@@ -314,6 +366,8 @@ def ke_json(kot, lebar, tinggi):
             "diskon": _angka_baris(bar, "menu.discountprice"),
             "yakin": round(min([b["_yakin"] for b in bar if b["_label"] != "O"] or [0.0]), 4),
         })
+
+    item = _satukan_dua_baris(item)
 
     toko = _gabung(kot, "store.nm")
     return {

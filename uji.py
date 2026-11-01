@@ -326,4 +326,60 @@ assert _PT.perlu({"item": []})
 assert not _PT.perlu({"item": [{"harga": 0.6}]})
 assert not _PT.perlu(None)
 
+# --- 13. struk LOGAM M&A: koma di dalam potongan, barcode, dan dua baris ---
+from rantai import _buang_barcode, _satukan_dua_baris  # noqa: E402
+
+# a. koma dengan TEPAT dua angka di ujung itu titik desimal, bukan ribuan.
+# Diukur pada struk LOGAM: "8, 00" dulu jadi 800,0 dan "~0 , 50" jadi 50,0.
+assert _uang("8, 00") == 8.00, _uang("8, 00")
+assert _uang("8 , 50") == 8.50, _uang("8 , 50")
+assert _uang("~0 , 50") == 0.50, _uang("~0 , 50")
+assert _uang("1,234,50") == 1234.50, _uang("1,234,50")
+# tiga angka setelah koma itu pemisah ribuan sungguhan, jangan disentuh
+assert _uang("1,234") == 1234.0, _uang("1,234")
+assert _uang("1,250") == 1250.0, _uang("1,250")
+assert _uang("26,00") == 26.00, _uang("26,00")
+
+# b. barcode yang menempel di depan nama barang dipotong.
+assert _buang_barcode('"08993175566438  NABAT I') == "NABAT I"
+assert _buang_barcode("08993175566438") == ""
+assert _buang_barcode("48a555149276688 ANGGUR  C/M SHI") == "ANGGUR C/M SHI"
+assert _buang_barcode("NABAT I AHH") == "NABAT I AHH"
+# nama yang kebetulan diawali angka pendek tidak boleh ikut terpotong
+assert _buang_barcode("100PLUS 1.5L") == "100PLUS 1.5L"
+assert _buang_barcode("680 BRUSH") == "680 BRUSH"
+
+# c. nama di baris atas, harga di baris bawah, disatukan jadi satu item.
+_dua = [
+    kotak("80ML", 20, 50, 80, 68, "menu.nm"),
+    kotak("CA", 85, 50, 115, 68, "menu.nm"),
+    kotak("GLUE", 120, 50, 170, 68, "menu.nm"),
+    kotak("50100026", 20, 90, 100, 108, "menu.num"),
+    kotak("1", 200, 90, 210, 108, "menu.cnt"),
+    kotak("8.00", 250, 90, 300, 108, "menu.unitprice"),
+    kotak("8, 00", 330, 90, 390, 108, "menu.price"),
+]
+_hd = ke_json(_dua, 400, 200)
+assert len(_hd["item"]) == 1, _hd["item"]
+assert _hd["item"][0]["nama"] == "80ML CA GLUE", _hd["item"][0]["nama"]
+assert _hd["item"][0]["harga"] == 8.00, _hd["item"][0]["harga"]
+
+# Struk satu baris tidak boleh tersentuh: dua item tetap dua item.
+_satu = [
+    kotak("KOPI", 20, 50, 80, 68, "menu.nm"),
+    kotak("3.00", 330, 50, 390, 68, "menu.price"),
+    kotak("TEH", 20, 90, 80, 108, "menu.nm"),
+    kotak("4.00", 330, 90, 390, 108, "menu.price"),
+]
+assert len(ke_json(_satu, 400, 200)["item"]) == 2
+
+# Baris nama yang sudah punya harga tidak boleh menelan baris di bawahnya.
+_takut = [{"nama": "A", "harga": 1.0, "harga_satuan": None, "diskon": None,
+           "jumlah": 1.0, "yakin": 0.9},
+          {"nama": None, "harga": 2.0, "harga_satuan": None, "diskon": None,
+           "jumlah": 1.0, "yakin": 0.9}]
+assert len(_satukan_dua_baris(_takut)) == 2
+# Baris diskon tanpa nama sesudah baris yang sudah lengkap tetap berdiri sendiri.
+assert len(_satukan_dua_baris(_takut[1:])) == 1
+
 print("semua uji lolos")
