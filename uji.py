@@ -382,4 +382,40 @@ assert len(_satukan_dua_baris(_takut)) == 2
 # Baris diskon tanpa nama sesudah baris yang sudah lengkap tetap berdiri sendiri.
 assert len(_satukan_dua_baris(_takut[1:])) == 1
 
+# --- 14. pengaman harga item mustahil ---
+from rantai import _buang_harga_mustahil, _uang_potongan as _up  # noqa: E402
+
+# P5. Spasi dengan tepat dua angka ekor itu titik desimal.
+assert _up(["RM76 90"]) == 76.90, _up(["RM76 90"])
+assert _up(["27", "90"]) == 27.90
+# tiga angka setelah spasi itu pemisah ribuan, jangan disentuh
+assert _up(["1 234"]) == 1234.0, _up(["1 234"])
+# dan _uang POLOS tidak boleh ikut berubah, sebab ia menyusun jawaban gold
+assert _uang("76 90") == 7690.0, _uang("76 90")
+
+
+def _it(*harga):
+    return [{"nama": f"B{i}", "harga": h, "jumlah": 1.0, "harga_satuan": None,
+             "diskon": None, "yakin": 0.9} for i, h in enumerate(harga)]
+
+
+# P1. Bilangan bulat empat angka atau lebih itu kode barang, bukan harga.
+_h = _buang_harga_mustahil(_it(2.6, 2.8, 72780.0, 0.6))
+assert [x["harga"] for x in _h] == [2.6, 2.8, None, 0.6], [x["harga"] for x in _h]
+# harga empat angka BERDESIMAL tidak tersentuh, ia bisa jadi harga sungguhan
+_h = _buang_harga_mustahil(_it(1200.50, 1100.0, 1300.0))
+assert _h[0]["harga"] == 1200.50, _h[0]["harga"]
+
+# P2. Lebih dari 15 kali median harga item lain.
+_h = _buang_harga_mustahil(_it(2.0, 2.0, 2.0, 90.0))
+assert [x["harga"] for x in _h] == [2.0, 2.0, 2.0, None], [x["harga"] for x in _h]
+# 10 kali median masih wajar: satu barang mahal di antara barang murah
+_h = _buang_harga_mustahil(_it(2.0, 2.0, 2.0, 20.0))
+assert [x["harga"] for x in _h] == [2.0, 2.0, 2.0, 20.0], [x["harga"] for x in _h]
+# satu item saja tidak punya pembanding, jadi tidak boleh dibuang
+assert _buang_harga_mustahil(_it(999.0))[0]["harga"] == 999.0
+# harga None dan nama tetap utuh, yang dikosongkan hanya harganya
+_h = _buang_harga_mustahil(_it(2.0, None, 99999.0))
+assert _h[2]["nama"] == "B2" and _h[2]["harga"] is None
+
 print("semua uji lolos")

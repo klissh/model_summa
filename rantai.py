@@ -10,6 +10,7 @@ tanpa memuat model. Lihat uji.py.
 """
 
 import collections
+import statistics
 import re as _re
 
 # ---------------------------------------------------------------------------
@@ -306,6 +307,44 @@ def _buang_barcode(nm):
     return nm.strip()
 
 
+# Ambang 15 kali median: disapu atas 213 harga item dari 41 struk nyata, dan
+# 15 adalah nilai terketat yang masih nol korban. Pada 8 kali tangkapannya naik
+# dari 11 jadi 16 dari 19 harga mustahil, tetapi satu harga wajar ikut terbuang.
+_LIPAT_MUSTAHIL = 15
+
+
+def _buang_harga_mustahil(item):
+    """Kosongkan harga item yang mustahil. Mengosongkan, bukan menebak ulang.
+
+    Dua tanda, keduanya disapu atas 213 harga item dari 41 struk nyata:
+
+    1. Bilangan bulat empat angka atau lebih. Harga ritel Malaysia selalu
+       dicetak dua desimal, jadi "72780" di kolom kanan itu kode barang yang
+       salah tertangkap sebagai harga. Membuang 5 dari 19, nol korban.
+    2. Lebih dari 15 kali median harga item LAIN di struk yang sama. Barang di
+       satu struk tidak berjarak sejauh itu. Membuang 11 dari 19, nol korban.
+
+    Harganya dikosongkan supaya pengguna melihat kolom kosong lalu mengisinya.
+    Di aplikasi uang, angka salah yang percaya diri jauh lebih berbahaya
+    daripada angka yang hilang: 72.780 untuk belanja 21,30 akan tertagih.
+    """
+    def _angka(h):
+        return isinstance(h, (int, float)) and not isinstance(h, bool)
+
+    punya = [(i, x["harga"]) for i, x in enumerate(item) if _angka(x["harga"])]
+    for i, h in punya:
+        if h >= 1000 and float(h).is_integer():
+            item[i]["harga"] = None
+            continue
+        lain = sorted(v for j, v in punya if j != i)
+        if not lain:
+            continue
+        med = statistics.median(lain)
+        if med > 0 and h > _LIPAT_MUSTAHIL * med:
+            item[i]["harga"] = None
+    return item
+
+
 def _satukan_dua_baris(item):
     """Satukan baris nama yang kosong angka dengan baris angka yang kosong nama.
 
@@ -367,7 +406,7 @@ def ke_json(kot, lebar, tinggi):
             "yakin": round(min([b["_yakin"] for b in bar if b["_label"] != "O"] or [0.0]), 4),
         })
 
-    item = _satukan_dua_baris(item)
+    item = _buang_harga_mustahil(_satukan_dua_baris(item))
 
     toko = _gabung(kot, "store.nm")
     return {
@@ -536,6 +575,15 @@ def _uang_potongan(potong):
         if p[i + 1][0] in _SAMBUNG:
             p[i + 1] = "." + p[i + 1][1:]
     teks = " ".join(p)
+    # Spasi dengan TEPAT dua angka di ujung itu titik desimal yang terbaca
+    # spasi: satu kotak berbunyi "RM76 90" untuk 76,90, dan tanpa ini jadi
+    # 7690,0 di struk yang totalnya 99,75. Pemisah ribuan mengelompokkan tiga
+    # angka, jadi "1 234" tidak tersentuh.
+    #
+    # SENGAJA di sini, bukan di _uang. _uang dipakai ke_json untuk menyusun
+    # jawaban gold saat mengukur, dan kalau ia ikut ditambal maka gold ikut
+    # ditambal. Lihat uji.py bagian e.
+    teks = _re.sub(r"\s(\d{2})$", r".\1", teks)
     v = _uang(teks)
     if len(p) >= 2 and not any(c in ".," for c in teks):
         ekor = p[-1]
