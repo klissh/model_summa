@@ -34,12 +34,28 @@ persis keluaran `ke_json` Notebook E, dan `waktu` per tahap.
 3. Latensi dan ketepatan rantai **dengan penengah** belum pernah diukur.
    Notebook E mengukur tanpa penengah.
 
-## Batasan yang wajib ikut dilaporkan
+## Varian penengah yang dipakai
 
-Server memakai `penengah(..., satu_total=True)`, yaitu varian **P2U**.
-Menurut catatan di `hibrida_penengah.py`, P2U dirancang setelah angka uji P2
-terlihat, jadi angkanya pasca-hoc dan tidak boleh disajikan sebagai hasil uji
-yang bersih. P2U dipakai karena aplikasi menuntut satu total per struk.
+**Koreksi, 18 November 2026.** Bagian ini dulu berbunyi bahwa server memakai
+`penengah(..., satu_total=True)`, yaitu varian **P2U** yang pasca-hoc, dan
+menyebutnya keterbatasan yang wajib ikut dilaporkan. **Itu salah.**
+
+Yang sebenarnya, diperiksa di tiga tempat:
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `SATU_TOTAL` di `app.py` | `False`, yaitu **varian P2** |
+| Nilainya pada tag `diukur-g12` dan `diukur-uji3` | `False` di **kedua** tag |
+| `git log -S "SATU_TOTAL = True" -- app.py` | **kosong**, nilainya tidak pernah `True` |
+| Endpoint `/` pada peladen yang hidup | `"satu_total": false` |
+
+Jadi peladen **selalu** memakai P2, yaitu varian yang dipra-registrasikan, dan
+keterbatasan pasca-hoc itu **tidak berlaku** serta tidak perlu dilaporkan.
+
+P2U tetap ada sebagai pilihan di `hibrida_penengah.py` dan catatan di sana
+benar: ia dirancang setelah angka P2 terlihat. Kalau suatu saat `SATU_TOTAL`
+diubah menjadi `True`, keterbatasan itu kembali berlaku dan bagian ini harus
+dikembalikan.
 
 ## Pengenal huruf
 
