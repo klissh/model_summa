@@ -16,6 +16,10 @@ pada data bersih mana pun. Karena itu lapisan ini **dimatikan secara bawaan**.
 
     PENGENAL=easyocr   (bawaan) jalur lama, tidak satu baris pun berubah
     PENGENAL=ppocr     kotak CRAFT dibaca ulang oleh PP-OCRv4
+    UTAS_PENGENAL=4    utas onnxruntime untuk pengenal ini
+
+Saat PENGENAL=ppocr, pengenal CRNN EasyOCR TIDAK dijalankan sama sekali:
+`kotak_craft` memakai deteksi saja, sebab teksnya akan ditimpa seluruhnya.
 
 Dua sikap terhadap kegagalan, dan keduanya dipilih dengan sengaja:
 
@@ -31,6 +35,7 @@ shortcut: tinggi potongan 48 piksel diambil dari tinggi masukan baku pengenal
 PP-OCR, bukan dari sapuan. Sesuaikan kalau versi pengenalnya berganti.
 """
 import os
+import time
 
 # Kotak dari width_ths=0.0 adalah PECAHAN token, sering hanya beberapa piksel
 # tingginya, sedangkan pengenal PP-OCR dilatih pada potongan setinggi satu
@@ -40,9 +45,14 @@ TINGGI_REC = 48
 MARGIN = 2
 # Potongan di bawah ukuran ini tidak mungkin memuat huruf.
 SISI_MIN = 3
+# Utas onnxruntime. Terukur pada struk 181 kotak: bawaan 3,05 detik, empat
+# utas 2,07 detik, delapan utas 2,03 detik. Jadi empat sudah menangkap hampir
+# seluruh manfaatnya tanpa memborong inti peladen dari torch.
+UTAS = int(os.environ.get("UTAS_PENGENAL", "4"))
 
 _mesin = None
 _gagal = 0
+_detik = 0.0
 
 
 def aktif():
@@ -69,8 +79,45 @@ def muat():
         raise RuntimeError(
             "PENGENAL=ppocr tetapi rapidocr_onnxruntime tidak terpasang. "
             "Pasang 'rapidocr_onnxruntime' atau setel PENGENAL=easyocr.") from e
-    _mesin = RapidOCR()
+    try:
+        _mesin = RapidOCR(intra_op_num_threads=UTAS)
+    except TypeError:
+        # Versi rapidocr yang tidak menerima setelan utas. Tetap jalan, hanya
+        # lebih lambat.
+        _mesin = RapidOCR()
     return _mesin
+
+
+def kotak_craft(pembaca, jalur, width_ths=0.0):
+    """Kotak dari deteksi CRAFT saja, tanpa menjalankan pengenal CRNN EasyOCR.
+
+    Dipakai hanya saat PENGENAL=ppocr, sebab teks CRNN akan ditimpa semuanya
+    dan menjalankannya berarti pekerjaan yang terbuang.
+
+    Boleh dilakukan karena terukur: pada 11 struk uji3 kotaknya sama dengan
+    readtext() kecuali 3 kotak dari 1326 yang bergeser 1 piksel, dan
+    readtext() sendiri pun tidak mengulang angka itu persis antarjalan. Jadi
+    bedanya derau pembulatan, bukan jalur deteksi yang berbeda.
+
+    Hematnya 1,4 sampai 1,8 detik per struk.
+
+    Harganya satu: tidak ada lagi teks EasyOCR sebagai jaring pengaman kalau
+    satu potongan gagal dibaca PP-OCR. Potongan itu jadi kosong, dan app.py
+    menggantinya dengan titik. Pada 1326 kotak uji3, nol potongan gagal.
+    """
+    mendatar, bebas = pembaca.detect(jalur, width_ths=width_ths)
+    kotak = []
+    for xa, xb, ya, yb in (mendatar[0] if mendatar else []):
+        kotak.append(dict(bbox=[int(xa), int(ya), int(xb), int(yb)],
+                          teks="", teks_asli="", skor=0.0))
+    for poly in (bebas[0] if bebas else []):
+        xs = [float(q[0]) for q in poly]
+        ys = [float(q[1]) for q in poly]
+        kotak.append(dict(bbox=[int(min(xs)), int(min(ys)),
+                                int(max(xs)), int(max(ys))],
+                          teks="", teks_asli="", skor=0.0))
+    kotak.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
+    return kotak
 
 
 def _baca_potongan(potongan):
@@ -98,12 +145,13 @@ def baca_ulang(sumber, kotak, normalisasi=None):
     Kotak dikembalikan sebagai objek yang SAMA, diubah di tempat, sebab sisa
     rantai menempelkan label ke objek kotak dan bukan ke posisinya.
     """
-    global _gagal
+    global _gagal, _detik
     if not aktif() or not kotak:
         return kotak
     from PIL import Image
 
     muat()
+    _t0 = time.perf_counter()
     if isinstance(sumber, str):
         with Image.open(sumber) as im:
             gambar = im.convert("RGB")
@@ -137,9 +185,15 @@ def baca_ulang(sumber, kotak, normalisasi=None):
         b["teks"] = normalisasi(teks) if normalisasi else teks
         if skor is not None:
             b["skor"] = skor
+    _detik += time.perf_counter() - _t0
     return kotak
 
 
 def gagal():
     """Berapa potongan yang gagal dibaca sejak peladen hidup."""
     return _gagal
+
+
+def detik():
+    """Total detik yang dipakai membaca ulang sejak peladen hidup."""
+    return round(_detik, 2)

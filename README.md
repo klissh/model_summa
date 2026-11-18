@@ -49,15 +49,30 @@ kotak tidak pernah berubah, jadi masukan ruang untuk LayoutLMv3 tetap sama.
 | Nilai | Arti |
 |---|---|
 | `easyocr` | **bawaan.** Jalur lama, CRNN EasyOCR 1.7.2 |
-| `ppocr` | kotak CRAFT dibaca ulang PP-OCRv4 lewat `rapidocr_onnxruntime` |
+| `ppocr` | deteksi CRAFT saja, lalu dibaca PP-OCRv4 lewat `rapidocr_onnxruntime` |
 
-Plafon OCR pada 11 struk himpunan uji ketiga, yaitu berapa nilai jawaban benar
-yang hadir utuh di dalam kotak:
+`UTAS_PENGENAL` mengatur utas onnxruntime, bawaannya 4.
 
-| Pengenal | Plafon 66 medan | Waktu 11 struk |
+Diukur pada rantai PENUH di laptop, yaitu EasyOCR lalu LayoutLMv3 lalu
+`rantai.py`, 11 struk himpunan uji ketiga:
+
+| Pengenal | Ketepatan 8 medan | Waktu per struk |
 |---|---|---|
-| EasyOCR CRNN | 43 dari 66 = 65,2 persen | sekitar 65 dtk |
-| PP-OCRv4 rec | **55 dari 66 = 83,3 persen** | 20 dtk |
+| EasyOCR CRNN | 35 dari 66 = 53,0 persen | 13,3 dtk |
+| **PP-OCRv4 rec** | **39 dari 66 = 59,1 persen** | **11,0 dtk** |
+
+Jadi jalur `ppocr` **lebih cepat sekaligus lebih tepat**. Lebih cepat sebab
+pengenal CRNN EasyOCR tidak dijalankan sama sekali: `kotak_craft` memakai
+deteksi saja, dan kotaknya terukur sama dengan `readtext` kecuali 3 kotak dari
+1326 yang bergeser 1 piksel, selisih yang `readtext` sendiri pun tidak
+mengulang persis antarjalan.
+
+Plafon OCR, yaitu berapa nilai jawaban benar yang hadir utuh di dalam kotak:
+
+| Pengenal | Plafon 66 medan |
+|---|---|
+| EasyOCR CRNN | 43 dari 66 = 65,2 persen |
+| PP-OCRv4 rec | **55 dari 66 = 83,3 persen** |
 
 Angka 43,9 persen di tag `diukur-uji3` diukur dengan `PENGENAL=easyocr`, dan
 `ppocr` **belum pernah diukur pada data bersih**. Karena itu bawaannya tetap

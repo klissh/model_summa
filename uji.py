@@ -658,4 +658,50 @@ finally:
     else:
         os.environ["PENGENAL"] = _simpan
 
+# --- 19. kotak dari deteksi CRAFT saja, tanpa pengenal CRNN ---
+# Dipakai saat PENGENAL=ppocr, sebab teks CRNN akan ditimpa seluruhnya.
+# Yang diuji perubahan bentuknya: detect memberi [x_kiri, x_kanan, y_atas,
+# y_bawah] sedangkan sisa rantai memakai [x0, y0, x1, y1], dan tertukar di
+# sini berarti setiap kotak salah tempat tanpa satu pun pesan galat.
+
+
+class _PembacaPalsu:
+    """Pengganti easyocr.Reader yang hanya mengembalikan kotak yang diatur."""
+
+    def __init__(self, mendatar, bebas):
+        self.mendatar = mendatar
+        self.bebas = bebas
+        self.dipanggil = None
+
+    def detect(self, jalur, width_ths=None):
+        self.dipanggil = (jalur, width_ths)
+        return [self.mendatar], [self.bebas]
+
+
+# satu kotak mendatar di bawah, satu di atas, satu poligon bebas paling bawah
+_pb = _PembacaPalsu([[100, 200, 50, 70], [10, 60, 10, 30]],
+                    [[[5, 100], [40, 102], [40, 120], [5, 118]]])
+_kt = _pp.kotak_craft(_pb, "foto.jpg", 0.0)
+
+# width_ths diteruskan apa adanya, bukan dibiarkan memakai bawaan EasyOCR 0,5
+assert _pb.dipanggil == ("foto.jpg", 0.0), _pb.dipanggil
+# urutan baca, yaitu dari atas ke bawah lalu kiri ke kanan
+assert [b["bbox"] for b in _kt] == [[10, 10, 60, 30],
+                                    [100, 50, 200, 70],
+                                    [5, 100, 40, 120]], [b["bbox"] for b in _kt]
+# teks dibiarkan kosong, sebab pengenalnya yang mengisinya
+assert all(b["teks"] == "" and b["teks_asli"] == "" for b in _kt)
+assert all(b["skor"] == 0.0 for b in _kt)
+
+# tidak ada kotak sama sekali: daftar kosong, bukan galat
+assert _pp.kotak_craft(_PembacaPalsu([], []), "foto.jpg") == []
+
+# poligon bebas saja, tanpa kotak mendatar
+_kt = _pp.kotak_craft(_PembacaPalsu([], [[[9, 9], [21, 11], [20, 31], [8, 29]]]),
+                      "foto.jpg")
+assert [b["bbox"] for b in _kt] == [[8, 9, 21, 31]], [b["bbox"] for b in _kt]
+
+# pencatat waktu ada dan berupa angka, dipakai endpoint sehat
+assert isinstance(_pp.detik(), float)
+
 print("semua uji lolos")

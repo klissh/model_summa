@@ -69,20 +69,29 @@ app = FastAPI()
 
 
 def ocr_mentah(jalur):
-    """Notebook E sel 6. Urutan dan isinya sama dengan Notebook A sel 7."""
-    hasil = pembaca.readtext(jalur, **rantai.PARAM_READTEXT)
-    kotak = []
-    for item in hasil:
-        poly, teks, skor = item[0], item[1], item[2]
-        xs = [float(p[0]) for p in poly]
-        ys = [float(p[1]) for p in poly]
-        kotak.append(dict(
-            bbox=[int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
-            teks=rantai.normalisasi_angka(teks), teks_asli=teks, skor=float(skor)))
-    kotak.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
-    # Teks di dalam kotak boleh dibaca ulang pengenal lain. Bbox TIDAK
-    # disentuh, jadi masukan ruang untuk LayoutLMv3 tetap sama. Tanpa
-    # PENGENAL=ppocr baris ini tidak mengubah apa pun.
+    """Notebook E sel 6. Urutan dan isinya sama dengan Notebook A sel 7.
+
+    Saat PENGENAL=ppocr, pengenal CRNN EasyOCR dilewatkan sepenuhnya: teksnya
+    akan ditimpa seluruhnya, jadi menjalankannya hanya pekerjaan terbuang
+    seharga 1,4 sampai 1,8 detik per struk. Kotaknya terukur sama, lihat
+    pengenal_ppocr.kotak_craft.
+    """
+    if pengenal_ppocr.aktif():
+        kotak = pengenal_ppocr.kotak_craft(
+            pembaca, jalur, rantai.PARAM_READTEXT["width_ths"])
+    else:
+        kotak = []
+        for item in pembaca.readtext(jalur, **rantai.PARAM_READTEXT):
+            poly, teks, skor = item[0], item[1], item[2]
+            xs = [float(p[0]) for p in poly]
+            ys = [float(p[1]) for p in poly]
+            kotak.append(dict(
+                bbox=[int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
+                teks=rantai.normalisasi_angka(teks), teks_asli=teks,
+                skor=float(skor)))
+        kotak.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
+    # Bbox TIDAK disentuh, jadi masukan ruang untuk LayoutLMv3 tetap sama.
+    # Tanpa PENGENAL=ppocr baris ini tidak mengubah apa pun.
     return pengenal_ppocr.baca_ulang(jalur, kotak, rantai.normalisasi_angka)
 
 
@@ -232,6 +241,7 @@ def sehat():
         "easyocr": easyocr.__version__,
         "pengenal": pengenal_ppocr.nama(),
         "pengenal_gagal": pengenal_ppocr.gagal(),
+        "pengenal_detik": pengenal_ppocr.detik(),
         "kuantisasi": False,
         "satu_total": SATU_TOTAL,
         "rss_gb": round(p.memory_info().rss / 1e9, 2),
