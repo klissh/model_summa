@@ -14,22 +14,32 @@ Teks berubah walau koordinatnya tidak, dan model dilatih pada teks EasyOCR
 beserta galatnya. Pergeseran itu kecil dan arahnya baik, tetapi BELUM diuji
 pada data bersih mana pun. Karena itu lapisan ini **dimatikan secara bawaan**.
 
-    PENGENAL=easyocr   (bawaan) jalur lama, tidak satu baris pun berubah
-    PENGENAL=ppocr     kotak CRAFT dibaca ulang oleh PP-OCRv4
+    PENGENAL=ppocr     (bawaan) deteksi CRAFT saja, lalu dibaca PP-OCRv4
+    PENGENAL=easyocr   jalur lama, CRNN EasyOCR 1.7.2
     UTAS_PENGENAL=4    utas onnxruntime untuk pengenal ini
 
-Saat PENGENAL=ppocr, pengenal CRNN EasyOCR TIDAK dijalankan sama sekali:
+Saat ppocr dipakai, pengenal CRNN EasyOCR TIDAK dijalankan sama sekali:
 `kotak_craft` memakai deteksi saja, sebab teksnya akan ditimpa seluruhnya.
 
-Dua sikap terhadap kegagalan, dan keduanya dipilih dengan sengaja:
+Kebijakan kegagalan dibedakan menurut SIAPA yang memilih, sebab sejak ppocr
+jadi bawaan, pustaka yang tidak terpasang tidak lagi berarti salah setel:
 
-  * Salah setel GAGAL KERAS saat muat. Kalau PENGENAL=ppocr tetapi pustakanya
-    tidak ada, peladen menolak hidup. Diam-diam kembali ke EasyOCR membuat
-    angka yang dilaporkan tidak bisa dipercaya, sebab tidak ada yang tahu
-    pengenal mana yang sebenarnya berjalan.
-  * Satu kotak yang gagal dibaca MENURUN HALUS. Teks EasyOCR untuk kotak itu
-    dipertahankan dan kejadiannya dihitung, sebab menjatuhkan satu struk utuh
-    karena satu potongan kecil lebih buruk daripada satu kata yang keliru.
+  * PENGENAL=ppocr DISETEL EKSPLISIT, pustakanya tidak ada: GAGAL KERAS.
+    Operator meminta pengenal tertentu, dan diam-diam memakai yang lain
+    membuat angka yang dilaporkan tidak bisa dipercaya.
+  * ppocr dipakai dari BAWAAN, pustakanya tidak ada: MUNDUR ke EasyOCR dengan
+    peringatan, dan `nama()` beserta endpoint sehat menyebutkan kemundurannya.
+    Satu roda yang gagal dipasang tidak boleh berarti peladen mati.
+  * Satu potongan yang gagal dibaca MENURUN HALUS dan kejadiannya dihitung,
+    sebab menjatuhkan satu struk utuh karena satu potongan kecil lebih buruk
+    daripada satu kata yang keliru.
+
+Huruf di luar ASCII dibuang dari keluaran pengenal. Model PP-OCRv4 bawaan
+rapidocr adalah model Tionghoa ditambah Inggris, dan pada potongan berderau ia
+mengeluarkan huruf Han. Terukur pada 1326 kotak uji3: 17 kotak memuat huruf
+non-ASCII dan 12 di antaranya huruf Han, sedangkan EasyOCR nol. Struk Malaysia
+tidak memuat huruf Han dan LayoutLMv3 dilatih pada teks beraksara Latin, jadi
+huruf itu derau yang masuk langsung ke masukan model.
 
 shortcut: tinggi potongan 48 piksel diambil dari tinggi masukan baku pengenal
 PP-OCR, bukan dari sapuan. Sesuaikan kalau versi pengenalnya berganti.
@@ -50,17 +60,38 @@ SISI_MIN = 3
 # seluruh manfaatnya tanpa memborong inti peladen dari torch.
 UTAS = int(os.environ.get("UTAS_PENGENAL", "4"))
 
+BAWAAN = "ppocr"
+
 _mesin = None
 _gagal = 0
 _detik = 0.0
+_mundur = False
+
+
+def _setelan():
+    return os.environ.get("PENGENAL", BAWAAN).strip().lower()
+
+
+def diminta():
+    """Benar kalau ppocr DISETEL eksplisit, bukan dipakai dari bawaan."""
+    return os.environ.get("PENGENAL", "").strip().lower() == "ppocr"
 
 
 def aktif():
-    return os.environ.get("PENGENAL", "easyocr").strip().lower() == "ppocr"
+    return _setelan() == "ppocr" and not _mundur
 
 
 def nama():
-    return "PP-OCRv4 rec (rapidocr_onnxruntime)" if aktif() else "EasyOCR CRNN"
+    if aktif():
+        return "PP-OCRv4 rec (rapidocr_onnxruntime)"
+    if _mundur:
+        return "EasyOCR CRNN (MUNDUR, rapidocr tidak terpasang)"
+    return "EasyOCR CRNN"
+
+
+def _bersihkan(teks):
+    """Buang huruf di luar ASCII dari keluaran pengenal. Lihat docstring modul."""
+    return "".join(c for c in teks if ord(c) < 128).strip()
 
 
 def muat():
@@ -70,15 +101,22 @@ def muat():
     lebih baik peladen tidak hidup daripada hidup dengan pengenal yang bukan
     seperti yang tertulis di setelan.
     """
-    global _mesin
+    global _mesin, _mundur
     if not aktif() or _mesin is not None:
         return _mesin
     try:
         from rapidocr_onnxruntime import RapidOCR
     except ImportError as e:
-        raise RuntimeError(
-            "PENGENAL=ppocr tetapi rapidocr_onnxruntime tidak terpasang. "
-            "Pasang 'rapidocr_onnxruntime' atau setel PENGENAL=easyocr.") from e
+        if diminta():
+            raise RuntimeError(
+                "PENGENAL=ppocr tetapi rapidocr_onnxruntime tidak terpasang. "
+                "Pasang 'rapidocr_onnxruntime' atau setel PENGENAL=easyocr."
+            ) from e
+        _mundur = True
+        print("PERINGATAN: rapidocr_onnxruntime tidak terpasang, mundur ke "
+              "pengenal EasyOCR. Endpoint sehat menyebutkan kemunduran ini.",
+              flush=True)
+        return None
     try:
         _mesin = RapidOCR(intra_op_num_threads=UTAS)
     except TypeError:
@@ -129,7 +167,7 @@ def _baca_potongan(potongan):
     if not hasil:
         return None, None
     # Tanpa deteksi, bentuknya [[teks, yakin], ...]
-    teks = " ".join(str(r[0]) for r in hasil).strip()
+    teks = _bersihkan(" ".join(str(r[0]) for r in hasil))
     skor = [float(r[1]) for r in hasil if len(r) > 1]
     return (teks or None), (sum(skor) / len(skor) if skor else None)
 
@@ -150,7 +188,10 @@ def baca_ulang(sumber, kotak, normalisasi=None):
         return kotak
     from PIL import Image
 
-    muat()
+    if muat() is None:
+        # Mundur ke EasyOCR terjadi di sini kalau pustakanya ternyata tidak
+        # ada. Teks yang sudah ada dibiarkan apa adanya.
+        return kotak
     _t0 = time.perf_counter()
     if isinstance(sumber, str):
         with Image.open(sumber) as im:

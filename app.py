@@ -76,6 +76,9 @@ def ocr_mentah(jalur):
     seharga 1,4 sampai 1,8 detik per struk. Kotaknya terukur sama, lihat
     pengenal_ppocr.kotak_craft.
     """
+    # muat() dipanggil lebih dulu supaya kemunduran ke EasyOCR sudah diketahui
+    # sebelum memutuskan melewatkan pengenal CRNN.
+    pengenal_ppocr.muat()
     if pengenal_ppocr.aktif():
         kotak = pengenal_ppocr.kotak_craft(
             pembaca, jalur, rantai.PARAM_READTEXT["width_ths"])

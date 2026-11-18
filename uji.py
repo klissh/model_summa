@@ -606,9 +606,24 @@ import pengenal_ppocr as _pp  # noqa: E402
 
 _simpan = os.environ.get("PENGENAL")
 try:
-    # Bawaan: mati, dan baca_ulang tidak mengubah apa pun
+    # Bawaannya ppocr sejak 18 November 2026, dan PENGENAL yang tidak disetel
+    # TIDAK dianggap permintaan eksplisit. Bedanya menentukan apakah pustaka
+    # yang hilang menjatuhkan peladen atau hanya membuatnya mundur.
     os.environ.pop("PENGENAL", None)
+    assert _pp.BAWAAN == "ppocr"
+    assert _pp.aktif() is True
+    assert _pp.diminta() is False
+
+    # Disetel eksplisit: aktif, dan dianggap permintaan
+    os.environ["PENGENAL"] = "  PPOCR  "      # huruf besar dan spasi
+    assert _pp.aktif() is True
+    assert _pp.diminta() is True
+    assert "PP-OCRv4" in _pp.nama()
+
+    # Dimatikan: baca_ulang tidak mengubah apa pun
+    os.environ["PENGENAL"] = "easyocr"
     assert _pp.aktif() is False
+    assert _pp.diminta() is False
     assert _pp.nama() == "EasyOCR CRNN"
     assert _pp.muat() is None
     _kt = [{"bbox": [10, 10, 60, 30], "teks": "RMO", "teks_asli": "RMO",
@@ -618,14 +633,20 @@ try:
     assert _kt[0]["teks"] == "RMO"            # tidak disentuh
     assert _kt[0]["bbox"] == [10, 10, 60, 30]
 
-    os.environ["PENGENAL"] = "easyocr"
-    assert _pp.aktif() is False
-    os.environ["PENGENAL"] = "  PPOCR  "      # huruf besar dan spasi
-    assert _pp.aktif() is True
-    assert "PP-OCRv4" in _pp.nama()
-
     # Daftar kotak kosong tidak pernah menyentuh pengenal, walau dinyalakan
+    os.environ["PENGENAL"] = "ppocr"
     assert _pp.baca_ulang("berkas-yang-tidak-ada.jpg", []) == []
+
+    # Huruf di luar ASCII dibuang. Model PP-OCRv4 bawaan rapidocr adalah model
+    # Tionghoa ditambah Inggris, dan pada potongan berderau ia mengeluarkan
+    # huruf Han: 17 dari 1326 kotak uji3, 12 di antaranya huruf Han, sedangkan
+    # EasyOCR nol. Struk Malaysia tidak memuat huruf Han.
+    assert _pp._bersihkan("Sub Total \u660e 16. 75") == "Sub Total  16. 75"
+    assert _pp._bersihkan("\u54c1") == ""
+    assert _pp._bersihkan("2-55\u00b0") == "2-55"
+    assert _pp._bersihkan("57\u3001") == "57"
+    assert _pp._bersihkan("  RM0 48  ") == "RM0 48"
+    assert _pp._bersihkan("TOTAL 16.75") == "TOTAL 16.75"
 
     # Jalur nyala hanya diuji kalau pustakanya ada, supaya build tanpa
     # rapidocr tetap bisa menjalankan seluruh uji ini.
@@ -679,6 +700,7 @@ class _PembacaPalsu:
 
 
 # satu kotak mendatar di bawah, satu di atas, satu poligon bebas paling bawah
+# kotak_craft murni perubahan bentuk, jadi ia tidak bergantung pada PENGENAL
 _pb = _PembacaPalsu([[100, 200, 50, 70], [10, 60, 10, 30]],
                     [[[5, 100], [40, 102], [40, 120], [5, 118]]])
 _kt = _pp.kotak_craft(_pb, "foto.jpg", 0.0)
