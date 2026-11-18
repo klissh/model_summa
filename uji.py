@@ -726,4 +726,105 @@ assert [b["bbox"] for b in _kt] == [[8, 9, 21, 31]], [b["bbox"] for b in _kt]
 # pencatat waktu ada dan berupa angka, dipakai endpoint sehat
 assert isinstance(_pp.detik(), float)
 
+
+# ---------------------------------------------------------------------------
+# 20. GERBANG VLM VERSI AMAN
+#
+# Yang dijaga bagian ini bukan ketepatan VLM, sebab tidak ada VLM di sini,
+# melainkan dua janji gerbangnya: nilai 0 tidak pernah dianggap kosong, dan
+# medan yang sudah berisi tidak pernah ditimpa. Keduanya yang membuat gerbang
+# usulan terukur menyerahkan 12 dari 39 medan benar uji3 ke VLM.
+# ---------------------------------------------------------------------------
+import gerbang_vlm as _gv  # noqa: E402
+
+_TINGGI = 1000
+_ATAS = [{"bbox": [10, 20, 100, 40]}, {"bbox": [10, 50, 100, 70]}]
+_BAWAH = [{"bbox": [10, 900, 100, 920]}, {"bbox": [10, 930, 100, 950]}]
+
+
+def _kontrak(**medan):
+    """Kontrak aplikasi tiruan, semua medan kosong kecuali yang diberikan."""
+    r = {k: {"nilai": None, "teks": None, "keyakinan": None, "asal": None}
+         for k in _gv.MEDAN_UANG}
+    for k, v in medan.items():
+        if k in r:
+            r[k]["nilai"] = v
+    return {"toko": medan.get("toko"), "tanggal": medan.get("tanggal"),
+            "jam": medan.get("jam"), "ringkasan": r}
+
+
+def _nama(daftar):
+    return [m["medan"] for m in daftar]
+
+
+# semua kosong dan kedua zona berisi kotak: kedelapan medan diserahkan
+_semua = _nama(_gv.perlu_tambal(_kontrak(), _ATAS + _BAWAH, _TINGGI))
+assert _semua == ["toko", "tanggal", "jam", "subtotal", "pajak", "total",
+                  "tunai", "kembalian"], _semua
+
+# NOL BUKAN KOSONG. Empat medan jawaban benar uji3 memang nol, dan gerbang
+# usulan yang menganggapnya kosong itulah salah satu sebab terbesar ia
+# menyerahkan medan yang sudah benar.
+_n = _nama(_gv.perlu_tambal(_kontrak(total=0.0), _ATAS + _BAWAH, _TINGGI))
+assert "total" not in _n, _n
+assert len(_n) == 7, _n
+_n = _nama(_gv.perlu_tambal(_kontrak(kembalian=0), _ATAS + _BAWAH, _TINGGI))
+assert "kembalian" not in _n, _n
+
+# medan teks yang sudah berisi tidak diserahkan, yang berisi spasi saja ya
+_n = _nama(_gv.perlu_tambal(_kontrak(toko="KEDAI"), _ATAS + _BAWAH, _TINGGI))
+assert "toko" not in _n, _n
+_n = _nama(_gv.perlu_tambal(_kontrak(toko="   "), _ATAS + _BAWAH, _TINGGI))
+assert "toko" in _n, _n
+
+# PENJAGA ZONA. Kalau pengenal tidak menemukan teks di kaki struk, medan uang
+# tidak boleh ditanyakan: tidak ada yang bisa diperiksa terhadap jawaban VLM.
+assert _nama(_gv.perlu_tambal(_kontrak(), _ATAS, _TINGGI)) ==     ["toko", "tanggal", "jam"]
+assert _nama(_gv.perlu_tambal(_kontrak(), _BAWAH, _TINGGI)) ==     ["subtotal", "pajak", "total", "tunai", "kembalian"]
+assert _gv.perlu_tambal(_kontrak(), [], _TINGGI) == []
+# satu kotak saja belum cukup: medan menuntut label dan nilainya
+assert _gv.perlu_tambal(_kontrak(), _BAWAH[:1], _TINGGI) == []
+# tinggi citra tidak diketahui: gerbang menutup, bukan menebak
+assert _gv.perlu_tambal(_kontrak(), _ATAS + _BAWAH, 0) == []
+
+# zona dihitung dari TINGGI CITRA, bukan dari rentang kotak. Kalau dari
+# rentang kotak, kedua kotak kepala ini akan ikut mengisi zona bawah dan
+# penjaganya kehilangan guna.
+assert _nama(_gv.perlu_tambal(_kontrak(), _ATAS, 10000)) ==     ["toko", "tanggal", "jam"]
+
+# penambalan menulis, menandai asalnya, dan mencatat daftarnya di akar
+_k = _kontrak()
+_tulis = _gv.tambal(_k, {"total": 93.90, "jam": "19:55:44"},
+                    _ATAS + _BAWAH, _TINGGI)
+assert sorted(_tulis) == ["jam", "total"], _tulis
+assert _k["ringkasan"]["total"]["nilai"] == 93.90
+assert _k["ringkasan"]["total"]["asal"] == "vlm"
+assert _k["ringkasan"]["total"]["keyakinan"] is None
+assert _k["jam"] == "19:55:44"
+assert _k["asalVlm"] == ["jam", "total"], _k["asalVlm"]
+
+# TIDAK PERNAH MENIMPA. Jawaban VLM untuk medan yang sudah berisi dibuang,
+# walaupun pemanggilnya memaksakannya.
+_k = _kontrak(total=16.75, toko="99 SPEED MART")
+_tulis = _gv.tambal(_k, {"total": 99.0, "toko": "SALAH"},
+                    _ATAS + _BAWAH, _TINGGI)
+assert _tulis == [], _tulis
+assert _k["ringkasan"]["total"]["nilai"] == 16.75
+assert _k["ringkasan"]["total"]["asal"] is None
+assert _k["toko"] == "99 SPEED MART"
+assert "asalVlm" not in _k
+
+# medan yang gerbangnya tolak karena zona pun tidak tertulis
+_k = _kontrak()
+assert _gv.tambal(_k, {"total": 93.90}, _ATAS, _TINGGI) == []
+assert _k["ringkasan"]["total"]["nilai"] is None
+
+# jawaban kosong dari VLM bukan jawaban
+_k = _kontrak()
+assert _gv.tambal(_k, {"total": None, "jam": ""}, _ATAS + _BAWAH, _TINGGI) == []
+assert _gv.tambal(_k, {}, _ATAS + _BAWAH, _TINGGI) == []
+assert "asalVlm" not in _k
+
+print("20. gerbang VLM: lolos")
+
 print("semua uji lolos")

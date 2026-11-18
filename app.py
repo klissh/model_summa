@@ -17,6 +17,7 @@ import torch
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from PIL import Image
 
+import gerbang_vlm
 import pembanding_aturan as PA
 import pengenal_ppocr
 import pisah_tahap
@@ -225,12 +226,15 @@ def jalankan(jalur):
             w["8_penyelamat_rantai"] = sum(w2.values())
             if pisah_tahap.n_harga_item(hasil2) > pisah_tahap.n_harga_item(hasil):
                 hasil, kot, n_jendela, dipakai = hasil2, kot2, nj2, True
+                # kotaknya kini di ruang koordinat gambar yang sudah diputar,
+                # jadi tinggi acuan gerbang VLM ikut berganti
+                T = img2.size[1]
 
     w["total"] = sum(v for k, v in w.items() if k != "total")
     w["n_kotak"] = len(kot)
     w["n_jendela"] = n_jendela
     w["penyelamat"] = dipakai
-    return (hasil, kot), w
+    return (hasil, kot, T), w
 
 
 @app.get("/")
@@ -284,14 +288,21 @@ async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
         keluar, waktu = jalankan(jalur)
         if keluar is None:
             raise HTTPException(status_code=422, detail="OCR tidak menemukan teks apa pun")
-        hasil, kot = keluar
+        hasil, kot, tinggi = keluar
     finally:
         if jalur and os.path.exists(jalur):
             os.unlink(jalur)
 
     id_struk = uuid.uuid4().hex[:12]
+    aplikasi = rantai.ke_kontrak_aplikasi(hasil, kot, id_struk, MODEL_ID)
     jawab = {
-        "aplikasi": rantai.ke_kontrak_aplikasi(hasil, kot, id_struk, MODEL_ID),
+        "aplikasi": aplikasi,
+        # Medan yang BOLEH ditanyakan ke VLM, menurut gerbang di
+        # gerbang_vlm.py. Peladen ini sendiri tidak memanggil VLM apa pun:
+        # daftarnya dilaporkan supaya gerbangnya bisa diukur pada data nyata
+        # sebelum ada VLM, dan supaya aplikasi tahu medan mana yang kosong
+        # karena OCR, bukan karena struknya memang tidak memuatnya.
+        "gerbang_vlm": gerbang_vlm.perlu_tambal(aplikasi, kot, tinggi),
         "mentah": hasil,
         "waktu": {k: round(v, 3) if isinstance(v, float) else v for k, v in waktu.items()},
     }
