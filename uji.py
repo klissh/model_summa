@@ -827,4 +827,128 @@ assert "asalVlm" not in _k
 
 print("20. gerbang VLM: lolos")
 
+
+# ---------------------------------------------------------------------------
+# 21. PEMANGGIL VLM
+#
+# Tidak ada VLM sungguhan di sini. Yang dijaga: bawaannya mati, galat tidak
+# menjatuhkan struk, dan VLM TIDAK BISA menulis ke medan yang tidak ditanyakan.
+# Yang terakhir itu penting: tanpa penyaringan ini, satu balasan yang murah
+# hati bisa mengisi medan yang gerbangnya tidak pernah membuka.
+# ---------------------------------------------------------------------------
+import vlm as _vlm  # noqa: E402
+from PIL import Image as _Img  # noqa: E402
+
+_CITRA = _Img.new("RGB", (40, 90), (255, 255, 255))
+_simpan_vlm = (os.environ.get("VLM"), os.environ.get("KUNCI_VLM"))
+
+
+def _balas(isi):
+    """Pengirim palsu yang mengembalikan satu balasan bergaya OpenAI."""
+    def kirim(muatan):
+        kirim.muatan = muatan
+        return {"choices": [{"message": {"content": isi}}]}
+    kirim.muatan = None
+    return kirim
+
+
+try:
+    # BAWAAN MATI. Dua syarat, bukan satu: kunci yang tertinggal di
+    # lingkungan tidak boleh membuat peladen memanggil jaringan.
+    os.environ.pop("VLM", None)
+    os.environ.pop("KUNCI_VLM", None)
+    assert _vlm.aktif() is False
+    os.environ["VLM"] = "hidup"
+    assert _vlm.aktif() is False           # hidup tetapi tanpa kunci
+    os.environ["KUNCI_VLM"] = "kunci-palsu-untuk-uji"
+    assert _vlm.aktif() is True
+    os.environ["VLM"] = "mati"
+    assert _vlm.aktif() is False
+
+    # mati: pengirim TIDAK pernah dipanggil
+    _k = _balas("{}")
+    assert _vlm.tanya(_CITRA, ["total"], kirim=_k) == {}
+    assert _k.muatan is None
+
+    os.environ["VLM"] = "hidup"
+
+    # daftar medan kosong: tetap tidak menyentuh jaringan
+    _k = _balas("{}")
+    assert _vlm.tanya(_CITRA, [], kirim=_k) == {}
+    assert _k.muatan is None
+
+    # balasan terbungkus pagar markdown, walaupun dilarang di perintah
+    _pagar = "```json" + chr(10) +         '{"total": "RM 93.90", "jam": "7:55:44 PM"}' + chr(10) + "```"
+    _k = _balas(_pagar)
+    _h = _vlm.tanya(_CITRA, ["total", "jam"], uang=_uang, kirim=_k)
+    assert _h == {"total": 93.9, "jam": "7:55:44 PM"}, _h
+
+    # medan gerbang berupa dict, bukan nama polos
+    _h = _vlm.tanya(_CITRA, [{"medan": "total", "zona": "bawah"}],
+                    uang=_uang, kirim=_balas('{"total": "93.90"}'))
+    assert _h == {"total": 93.9}, _h
+
+    # VLM TIDAK BISA menulis ke medan yang tidak ditanyakan
+    _h = _vlm.tanya(_CITRA, ["total"], uang=_uang,
+                    kirim=_balas('{"total": "10.00", "toko": "DIKARANG"}'))
+    assert _h == {"total": 10.0}, _h
+
+    # null, teks "null", dan teks kosong semuanya BUKAN jawaban
+    _h = _vlm.tanya(_CITRA, ["total", "jam", "toko"], uang=_uang,
+                    kirim=_balas('{"total": null, "jam": "null", "toko": "  "}'))
+    assert _h == {}, _h
+
+    # Jawaban uang yang bukan angka DIBUANG. Ini bukan uji sepele:
+    # _uang("tidak terbaca") mengembalikan 1.0, sebab ia memetakan I jadi 1
+    # lalu menyaring sisa hurufnya. Tanpa penjaga bentuk di vlm.py, kalimat
+    # VLM yang jujur berubah menjadi RM 1,00 yang percaya diri. Uji ini
+    # MENANGKAPNYA, dan itulah sebab penjaga itu ada.
+    _h = _vlm.tanya(_CITRA, ["total"], uang=_uang,
+                    kirim=_balas('{"total": "tidak terbaca"}'))
+    assert _h == {}, _h
+
+    # balasan yang bukan JSON sama sekali
+    assert _vlm.tanya(_CITRA, ["total"], uang=_uang,
+                      kirim=_balas("Maaf, saya tidak bisa membantu.")) == {}
+
+    # GALAT TIDAK MENJATUHKAN STRUK, dan dihitung
+    def _meledak(muatan):
+        raise RuntimeError("jaringan mati")
+
+    _g0 = _vlm.gagal()
+    assert _vlm.tanya(_CITRA, ["total"], uang=_uang, kirim=_meledak) == {}
+    assert _vlm.gagal() == _g0 + 1
+    assert isinstance(_vlm.detik(), float)
+
+    # muatan memuat medan yang diminta dan citra base64, bukan jalur berkas
+    _k = _balas('{"total": "1.00"}')
+    _vlm.tanya(_CITRA, ["total", "kembalian"], uang=_uang, kirim=_k)
+    _teks = _k.muatan["messages"][0]["content"][0]["text"]
+    assert '"total"' in _teks and '"kembalian"' in _teks
+    assert '"jam"' not in _teks
+    assert _k.muatan["messages"][0]["content"][1]["image_url"]["url"].startswith(
+        "data:image/jpeg;base64,")
+    assert _k.muatan["temperature"] == 0
+
+    # gerbang dan pemanggil bersambung: jawaban VLM hanya masuk ke medan yang
+    # gerbangnya buka, dan medan berisi tetap tidak tertimpa
+    _kon = _kontrak(total=16.75)
+    _minta = _gv.perlu_tambal(_kon, _ATAS + _BAWAH, _TINGGI)
+    _jwb = _vlm.tanya(_CITRA, _minta, uang=_uang,
+                      kirim=_balas('{"total": "99.00", "kembalian": "0.50"}'))
+    assert _jwb == {"kembalian": 0.5}, _jwb
+    _tulis = _gv.tambal(_kon, _jwb, _ATAS + _BAWAH, _TINGGI)
+    assert _tulis == ["kembalian"], _tulis
+    assert _kon["ringkasan"]["total"]["nilai"] == 16.75
+    assert _kon["ringkasan"]["kembalian"]["nilai"] == 0.5
+    assert _kon["ringkasan"]["kembalian"]["asal"] == "vlm"
+finally:
+    for _n, _v in zip(("VLM", "KUNCI_VLM"), _simpan_vlm):
+        if _v is None:
+            os.environ.pop(_n, None)
+        else:
+            os.environ[_n] = _v
+
+print("21. pemanggil VLM: lolos")
+
 print("semua uji lolos")

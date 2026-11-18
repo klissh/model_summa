@@ -22,6 +22,7 @@ import pembanding_aturan as PA
 import pengenal_ppocr
 import pisah_tahap
 import rantai
+import vlm
 from hibrida_penengah import SET_ATURAN_MENANG, penengah
 
 MODEL_ID = os.environ.get("MODEL_ID", "Klissh/layoutlmv3-struk-summa-ocr")
@@ -251,6 +252,9 @@ def sehat():
         "pengenal_detik": pengenal_ppocr.detik(),
         "kuantisasi": False,
         "satu_total": SATU_TOTAL,
+        "vlm": vlm.MODEL if vlm.aktif() else False,
+        "vlm_gagal": vlm.gagal(),
+        "vlm_detik": vlm.detik(),
         "rss_gb": round(p.memory_info().rss / 1e9, 2),
         "puncak_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2),
         "berkunci": bool(KUNCI),
@@ -295,6 +299,20 @@ async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
 
     id_struk = uuid.uuid4().hex[:12]
     aplikasi = rantai.ke_kontrak_aplikasi(hasil, kot, id_struk, MODEL_ID)
+    minta = gerbang_vlm.perlu_tambal(aplikasi, kot, tinggi)
+    tertulis = []
+    if minta and vlm.aktif():
+        _t = time.perf_counter()
+        # Citra ASLI yang dikirim, bukan gambar jalur penyelamat yang sudah
+        # diputar: VLM menangani kemiringan lebih baik daripada rantai ini.
+        # Berkas sementaranya sudah dihapus, jadi dipakai `isi` yang masih ada.
+        with Image.open(io.BytesIO(isi)) as _im:
+            jawaban = vlm.tanya(_im, minta, uang=rantai._uang)
+        tertulis = gerbang_vlm.tambal(aplikasi, jawaban, kot, tinggi)
+        # Masuk ke `total` juga, sebab `total` dipakai mengukur latensi
+        # peladen dan panggilan VLM itu waktu peladen yang sungguhan.
+        waktu["9_vlm"] = time.perf_counter() - _t
+        waktu["total"] = waktu.get("total", 0.0) + waktu["9_vlm"]
     jawab = {
         "aplikasi": aplikasi,
         # Medan yang BOLEH ditanyakan ke VLM, menurut gerbang di
@@ -302,7 +320,8 @@ async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
         # daftarnya dilaporkan supaya gerbangnya bisa diukur pada data nyata
         # sebelum ada VLM, dan supaya aplikasi tahu medan mana yang kosong
         # karena OCR, bukan karena struknya memang tidak memuatnya.
-        "gerbang_vlm": gerbang_vlm.perlu_tambal(aplikasi, kot, tinggi),
+        "gerbang_vlm": minta,
+        "vlm_tertulis": tertulis,
         "mentah": hasil,
         "waktu": {k: round(v, 3) if isinstance(v, float) else v for k, v in waktu.items()},
     }
