@@ -929,6 +929,9 @@ try:
     assert _k.muatan["messages"][0]["content"][1]["image_url"]["url"].startswith(
         "data:image/jpeg;base64,")
     assert _k.muatan["temperature"] == 0
+    # batas keluaran ada, supaya jawaban yang mengarang panjang tidak dibayar
+    # per token sampai penyedianya berhenti sendiri
+    assert _k.muatan["max_tokens"] == 300
 
     # gerbang dan pemanggil bersambung: jawaban VLM hanya masuk ke medan yang
     # gerbangnya buka, dan medan berisi tetap tidak tertimpa

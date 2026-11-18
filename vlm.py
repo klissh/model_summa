@@ -10,6 +10,11 @@ Fireworks, dan juga Gemini lewat endpoint kompatibelnya. Satu jalur kode
 untuk banyak penyedia, dan penyedianya dipilih lewat VLM_URL dan VLM_MODEL
 tanpa menyentuh kode.
 
+Untuk HF Router, penyedia TIDAK perlu disebut: router memilih yang hidup
+sendiri kalau VLM_MODEL hanya berisi nama model. Menyebut satu penyedia
+dilakukan dengan menambahkan titik dua, misalnya
+Qwen/Qwen2.5-VL-7B-Instruct:featherless-ai
+
 Tanpa dependensi baru: urllib dan base64 dari pustaka standar. requirements
 peladen tidak bertambah.
 
@@ -45,6 +50,12 @@ BATAS_DETIK = float(os.environ.get("VLM_BATAS_DETIK", "40"))
 # diunggah aplikasi. Naikkan kalau terukur VLM salah baca angka kecil.
 SISI_MAKS = 1600
 MUTU = 85
+
+# Batas keluaran. Jawaban yang diminta cuma objek JSON delapan medan, jadi 300
+# token sudah lapang. Batas ini ada untuk ONGKOS: tanpa itu, VLM yang mulai
+# mengarang penjelasan panjang dibayar per token sampai penyedianya berhenti
+# sendiri.
+MAKS_TOKEN = 300
 
 _gagal = 0
 _detik = 0.0
@@ -134,6 +145,7 @@ def _muatan(medan, b64):
     return {
         "model": MODEL,
         "temperature": 0,
+        "max_tokens": MAKS_TOKEN,
         "messages": [{"role": "user", "content": [
             {"type": "text", "text": PERINTAH % kunci},
             {"type": "image_url",
