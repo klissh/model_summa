@@ -342,6 +342,21 @@ def _buang_harga_mustahil(item):
         med = statistics.median(lain)
         if med > 0 and h > _LIPAT_MUSTAHIL * med:
             item[i]["harga"] = None
+
+    # Harga satuan yang jauh melebihi harga barisnya. Dari uji3: 15900,0
+    # untuk baris berharga 15,90 dan 50,0 untuk baris berharga 3,50, yaitu
+    # potongan angka yang tertukar kolom. Dikosongkan, bukan ditebak ulang.
+    #
+    # Syarat jumlah minimal satu menjaga barang timbangan: 0,15 kg seharga
+    # RM 20 per kg memang berharga satuan jauh di atas harga barisnya.
+    #
+    # shortcut: ambang 5 kali dipilih dari 11 struk uji3 saja, bukan dari
+    # sapuan besar seperti _LIPAT_MUSTAHIL; naikkan kalau ada korban nyata.
+    for x in item:
+        hs, hr, jm = x.get("harga_satuan"), x.get("harga"), x.get("jumlah")
+        if (_angka(hs) and _angka(hr) and hr > 0
+                and _angka(jm) and jm >= 1 and hs > 5 * hr):
+            x["harga_satuan"] = None
     return item
 
 
@@ -399,7 +414,11 @@ def ke_json(kot, lebar, tinggi):
             "nama": nm or None,
             # Struk tanpa kolom kuantitas, seperti 99 Speed Mart, berarti satu
             # per barang. None membuat aplikasi menampilkan 0, yang salah.
-            "jumlah": 1.0 if jml is None else jml,
+            #
+            # Nol diperlakukan sama dengan kosong: barang berkuantitas nol
+            # tidak pernah tercetak di struk, jadi 0 selalu salah tangkap,
+            # biasanya dari kolom diskon 0.00 di sebelahnya.
+            "jumlah": 1.0 if not jml else jml,
             "harga_satuan": _angka_baris(bar, "menu.unitprice"),
             "harga": _harga_baris(bar),
             "diskon": _angka_baris(bar, "menu.discountprice"),
@@ -548,8 +567,20 @@ _POLA_JAM = _re.compile(r"^\d{1,2}[:;]\d{2}(?:[:;]\d{2})?\s*[AP]?\.?M?\.?$", _re
 _POLA_TANGGAL = _re.compile(r"^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$")
 
 # "SUBT" bukan "SUB", supaya nama toko seperti SUBWAY tidak ikut tertangkap.
-_KATA_MEDAN = {"subtotal": ("SUBT", "AMOUNT"),
-               "pajak": ("GST", "SST", "TAX", "CUKAI")}
+# medan -> (kata kunci, kata pembatal, ambil baris paling bawah)
+#
+# `total` ditambahkan setelah uji3: model hanya melabeli total.total_price
+# pada 3 dari 11 struk, padahal 9 dari 11 punya kotak bertuliskan TOTAL.
+# Kata TOTAL juga muncul di SUB TOTAL, TOTAL ITEM, TOTAL QTY, TOTAL SAVINGS
+# dan TOTAL SALES EXCLUSIVE SST, yang semuanya BUKAN jumlah akhir. Karena itu
+# pembatalnya panjang, dan yang diambil baris paling bawah: jumlah akhir
+# selalu tercetak di bawah rinciannya.
+_KATA_MEDAN = {"subtotal": (("SUBT", "AMOUNT"), (), False),
+               "pajak": (("GST", "SST", "TAX", "CUKAI"), (), False),
+               "total": (("TOTAL", "AMOUNTDUE", "JUMLAHBESAR"),
+                         ("SUBTOTAL", "SUBTTL", "SAVING", "QTY", "ITEM",
+                          "DISCOUNT", "EXCLUSIVE", "EXCTAX", "CHANGE",
+                          "TENDER", "POINT"), True)}
 
 
 _SAMBUNG = ",'`\u2019"
@@ -735,11 +766,14 @@ def _cadangan_kata(kot, idb, h):
     baris = _baris_kotak(kot, idb)
     huruf = {r: "".join(c for c in "".join(b["teks"] or "" for b in v).upper() if c.isalpha())
              for r, v in baris.items()}
-    for medan, kata in _KATA_MEDAN.items():
+    for medan, (kata, batal, dari_bawah) in _KATA_MEDAN.items():
         if (h.get(medan) or {}).get("nilai") is not None:
             continue
-        for r in sorted(baris):
+        urut = sorted(baris, reverse=dari_bawah)
+        for r in urut:
             if not any(w in huruf[r] for w in kata):
+                continue
+            if any(w in huruf[r] for w in batal):
                 continue
             pilih = _gugus_kanan(baris[r], _ambang_baris(baris[r]))
             if pilih and _uang_potongan([b["teks"] for b in pilih]) is not None:

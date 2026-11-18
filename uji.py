@@ -418,4 +418,70 @@ assert _buang_harga_mustahil(_it(999.0))[0]["harga"] == 999.0
 _h = _buang_harga_mustahil(_it(2.0, None, 99999.0))
 assert _h[2]["nama"] == "B2" and _h[2]["harga"] is None
 
+
+# --- 12. total lewat kata kunci sebaris, dari diagnosis uji3 ---
+# Model hanya melabeli total.total_price pada 3 dari 11 struk uji3. Kata TOTAL
+# juga muncul di baris yang BUKAN jumlah akhir, jadi yang diuji di sini adalah
+# pembatal dan pengambilan baris paling bawah.
+from rantai import ke_json_lengkap as _kjl  # noqa: E402
+
+
+def _baris_uang(teks_kiri, teks_kanan, y):
+    """Satu baris: kata kunci di kiri, nilainya di kanan."""
+    return [kotak(teks_kiri, 10, y, 200, y + 20),
+            kotak(teks_kanan, 400, y, 480, y + 20)]
+
+
+_struk = (_baris_uang("Total Item", "4", 10)
+          + _baris_uang("Sub Total", "39.23", 40)
+          + _baris_uang("Total Savings", "5.32", 70)
+          + _baris_uang("Total", "39.25", 100))
+_h = _kjl(_struk, 500, 200)
+# baris paling bawah yang lolos pembatal, bukan Sub Total dan bukan Savings
+assert (_h["total"] or {}).get("nilai") == 39.25, _h["total"]
+assert (_h["subtotal"] or {}).get("nilai") == 39.23, _h["subtotal"]
+
+# Tanpa baris TOTAL murni, medan total dibiarkan kosong, tidak diisi Sub Total
+_h = _kjl(_baris_uang("Sub Total", "39.23", 40)
+          + _baris_uang("Total Qty", "4", 70), 500, 200)
+assert (_h["total"] or {}).get("nilai") is None, _h["total"]
+
+# TOTAL SALES EXCLUSIVE SST bukan jumlah akhir, yang inclusive baru jumlah akhir
+_h = _kjl(_baris_uang("Total Sales Exclusive SST", "10.19", 10)
+          + _baris_uang("Total Sales inclusive of SST", "10.80", 40), 500, 200)
+assert (_h["total"] or {}).get("nilai") == 10.80, _h["total"]
+
+# --- 13. jumlah nol itu mustahil, dari diagnosis uji3 ---
+# Struk 01 memberi jumlah 0 pada dua barang, terambil dari kolom diskon 0.00.
+_brs = [kotak("Perkedel", 10, 10, 120, 30, label="menu.nm"),
+        kotak("0", 200, 10, 220, 30, label="menu.cnt"),
+        kotak("3.50", 400, 10, 460, 30, label="menu.price")]
+_it1 = ke_json_lengkap(_brs, 500, 50)["item"]
+assert len(_it1) == 1, _it1
+assert _it1[0]["jumlah"] == 1.0, _it1[0]
+
+# jumlah yang sah tidak diubah
+_brs[1] = kotak("2", 200, 10, 220, 30, label="menu.cnt")
+assert ke_json_lengkap(_brs, 500, 50)["item"][0]["jumlah"] == 2.0
+
+# --- 14. harga satuan mustahil dikosongkan, dari diagnosis uji3 ---
+from rantai import _buang_harga_mustahil as _bhm  # noqa: E402
+
+
+def _is(hs, hr, jm=1.0):
+    return [{"nama": "A", "jumlah": jm, "harga_satuan": hs,
+             "harga": hr, "diskon": None, "yakin": 0.9}]
+
+
+# 15900,0 untuk baris 15,90 dan 50,0 untuk baris 3,50: kolom tertukar
+assert _bhm(_is(15900.0, 15.90))[0]["harga_satuan"] is None
+assert _bhm(_is(50.0, 3.50))[0]["harga_satuan"] is None
+# selisih wajar tidak disentuh
+assert _bhm(_is(5.00, 5.45))[0]["harga_satuan"] == 5.00
+assert _bhm(_is(12.20, 8.99))[0]["harga_satuan"] == 12.20
+# barang timbangan: 0,15 kg seharga RM 20 per kg, jumlah di bawah satu
+assert _bhm(_is(20.0, 3.00, jm=0.15))[0]["harga_satuan"] == 20.0
+# harga baris tidak diketahui, tidak ada dasar membuang
+assert _bhm(_is(15900.0, None))[0]["harga_satuan"] == 15900.0
+
 print("semua uji lolos")
