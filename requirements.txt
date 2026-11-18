@@ -11,6 +11,12 @@ transformers==5.20.1
 # berbeda, sehingga model menerima masukan yang tidak pernah dia lihat.
 easyocr==1.7.2
 
+# Pengenal huruf alternatif, dipakai hanya kalau PENGENAL=ppocr. Dipasang
+# walau bawaannya mati, supaya menyalakannya cukup satu variabel lingkungan
+# dan tidak perlu membangun ulang image. Ia menarik onnxruntime dan opencv,
+# sekitar 120 MB, jauh di bawah torch. Lihat README bagian Pengenal huruf.
+rapidocr_onnxruntime==1.4.4
+
 # Pustaka server. Versinya tidak mempengaruhi keluaran model.
 fastapi
 uvicorn[standard]

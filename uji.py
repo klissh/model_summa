@@ -595,4 +595,67 @@ from rantai import _gugus_semua as _gs, _ambang_baris as _ab  # noqa: E402
 _g = _gs(_sst, _ab(_sst))
 assert [g[0]["teks"] for g in _g] == ["81.00", "4.84"], _g
 
+# --- 18. penyambungan pengenal huruf PP-OCR ---
+# Yang diuji penyambungannya, bukan ketepatan pengenalnya: bahwa jalur bawaan
+# tidak berubah sedikit pun, bahwa bbox tidak pernah disentuh, dan bahwa objek
+# kotak yang sama dikembalikan. Yang terakhir penting sebab sisa rantai
+# menempelkan label ke OBJEK kotak, bukan ke posisinya di daftar.
+import os  # noqa: E402
+
+import pengenal_ppocr as _pp  # noqa: E402
+
+_simpan = os.environ.get("PENGENAL")
+try:
+    # Bawaan: mati, dan baca_ulang tidak mengubah apa pun
+    os.environ.pop("PENGENAL", None)
+    assert _pp.aktif() is False
+    assert _pp.nama() == "EasyOCR CRNN"
+    assert _pp.muat() is None
+    _kt = [{"bbox": [10, 10, 60, 30], "teks": "RMO", "teks_asli": "RMO",
+            "skor": 0.5}]
+    _hasil = _pp.baca_ulang("berkas-yang-tidak-ada.jpg", _kt)
+    assert _hasil is _kt                      # objek yang sama
+    assert _kt[0]["teks"] == "RMO"            # tidak disentuh
+    assert _kt[0]["bbox"] == [10, 10, 60, 30]
+
+    os.environ["PENGENAL"] = "easyocr"
+    assert _pp.aktif() is False
+    os.environ["PENGENAL"] = "  PPOCR  "      # huruf besar dan spasi
+    assert _pp.aktif() is True
+    assert "PP-OCRv4" in _pp.nama()
+
+    # Daftar kotak kosong tidak pernah menyentuh pengenal, walau dinyalakan
+    assert _pp.baca_ulang("berkas-yang-tidak-ada.jpg", []) == []
+
+    # Jalur nyala hanya diuji kalau pustakanya ada, supaya build tanpa
+    # rapidocr tetap bisa menjalankan seluruh uji ini.
+    try:
+        import rapidocr_onnxruntime  # noqa: F401
+    except ImportError:
+        print("  bagian 18: jalur ppocr dilewati, rapidocr tidak terpasang")
+    else:
+        from PIL import Image, ImageDraw
+
+        _img = Image.new("RGB", (240, 60), "white")
+        ImageDraw.Draw(_img).text((10, 20), "1234", fill="black")
+        _kt = [{"bbox": [5, 15, 70, 45], "teks": "lama", "teks_asli": "lama",
+                "skor": 0.1}]
+        _sebelum = _pp.gagal()
+        _hasil = _pp.baca_ulang(_img, _kt, normalisasi=lambda t: t)
+        assert _hasil is _kt                          # objek yang sama
+        assert _kt[0]["bbox"] == [5, 15, 70, 45]      # bbox tidak disentuh
+        assert isinstance(_kt[0]["teks"], str)
+        assert _pp.gagal() == _sebelum                # tidak ada potongan gagal
+
+        # Potongan yang terlalu kecil dilewati, bukan menjatuhkan permintaan
+        _kecil = [{"bbox": [0, 0, 1, 1], "teks": "tetap", "teks_asli": "tetap",
+                   "skor": 0.1}]
+        _pp.baca_ulang(_img, _kecil, normalisasi=lambda t: t)
+        assert _kecil[0]["teks"] == "tetap"
+finally:
+    if _simpan is None:
+        os.environ.pop("PENGENAL", None)
+    else:
+        os.environ["PENGENAL"] = _simpan
+
 print("semua uji lolos")

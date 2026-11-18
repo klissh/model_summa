@@ -18,6 +18,7 @@ from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from PIL import Image
 
 import pembanding_aturan as PA
+import pengenal_ppocr
 import pisah_tahap
 import rantai
 from hibrida_penengah import SET_ATURAN_MENANG, penengah
@@ -47,6 +48,11 @@ from transformers import (  # noqa: E402
 # gold terbaca "KIDDY CLAY", dan model menerima teks yang asing baginya.
 pembaca = easyocr.Reader(rantai.BAHASA_OCR, gpu=False, quantize=False)
 
+# Sengaja di sini, saat peladen hidup, bukan saat permintaan pertama datang.
+# Salah setel PENGENAL harus menjatuhkan peladen di deploy, bukan diam-diam
+# berjalan dengan pengenal yang bukan seperti tertulis di setelan.
+pengenal_ppocr.muat()
+
 # JEBAKAN: kalau apply_ocr True, processor menjalankan OCR sendiri dan
 # menimpa kotak hasil EasyOCR tanpa pesan apa pun.
 proc = LayoutLMv3Processor.from_pretrained(MODEL_ID, apply_ocr=False)
@@ -74,7 +80,10 @@ def ocr_mentah(jalur):
             bbox=[int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
             teks=rantai.normalisasi_angka(teks), teks_asli=teks, skor=float(skor)))
     kotak.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
-    return kotak
+    # Teks di dalam kotak boleh dibaca ulang pengenal lain. Bbox TIDAK
+    # disentuh, jadi masukan ruang untuk LayoutLMv3 tetap sama. Tanpa
+    # PENGENAL=ppocr baris ini tidak mengubah apa pun.
+    return pengenal_ppocr.baca_ulang(jalur, kotak, rantai.normalisasi_angka)
 
 
 def _labeli(img, L, T, kotak, w):
@@ -192,6 +201,11 @@ def jalankan(jalur):
     if pisah_tahap.perlu(hasil):
         t = time.perf_counter()
         img2, kotak2 = pisah_tahap.ocr(jalur, pembaca)
+        if img2 is not None and kotak2:
+            # Kotak penyelamat berada di ruang koordinat gambar yang SUDAH
+            # diputar, jadi yang dibaca ulang gambar itu, bukan berkas asli.
+            kotak2 = pengenal_ppocr.baca_ulang(img2, kotak2,
+                                               rantai.normalisasi_angka)
         w["7_penyelamat_ocr"] = time.perf_counter() - t
         if kotak2:
             w2 = {}
@@ -216,6 +230,8 @@ def sehat():
         "model": MODEL_ID,
         "detik_muat": DETIK_MUAT,
         "easyocr": easyocr.__version__,
+        "pengenal": pengenal_ppocr.nama(),
+        "pengenal_gagal": pengenal_ppocr.gagal(),
         "kuantisasi": False,
         "satu_total": SATU_TOTAL,
         "rss_gb": round(p.memory_info().rss / 1e9, 2),

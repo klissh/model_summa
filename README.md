@@ -29,7 +29,7 @@ persis keluaran `ke_json` Notebook E, dan `waktu` per tahap.
 ## Yang masih kurang
 
 1. ~~Bobot model di Hugging Face~~ selesai.
-   Sudah dipakai: `Klissh/layoutlmv3-struk-summa`, 43 label BIO.
+   Sudah dipakai: `Klissh/layoutlmv3-struk-summa-ocr`, 43 label BIO.
 2. ~~Versi `easyocr` dikunci~~ selesai: `easyocr==1.7.2`, sama dengan Notebook A dan E.
 3. Latensi dan ketepatan rantai **dengan penengah** belum pernah diukur.
    Notebook E mengukur tanpa penengah.
@@ -40,6 +40,29 @@ Server memakai `penengah(..., satu_total=True)`, yaitu varian **P2U**.
 Menurut catatan di `hibrida_penengah.py`, P2U dirancang setelah angka uji P2
 terlihat, jadi angkanya pasca-hoc dan tidak boleh disajikan sebagai hasil uji
 yang bersih. P2U dipakai karena aplikasi menuntut satu total per struk.
+
+## Pengenal huruf
+
+`PENGENAL` memilih siapa yang membaca teks di dalam kotak CRAFT. Koordinat
+kotak tidak pernah berubah, jadi masukan ruang untuk LayoutLMv3 tetap sama.
+
+| Nilai | Arti |
+|---|---|
+| `easyocr` | **bawaan.** Jalur lama, CRNN EasyOCR 1.7.2 |
+| `ppocr` | kotak CRAFT dibaca ulang PP-OCRv4 lewat `rapidocr_onnxruntime` |
+
+Plafon OCR pada 11 struk himpunan uji ketiga, yaitu berapa nilai jawaban benar
+yang hadir utuh di dalam kotak:
+
+| Pengenal | Plafon 66 medan | Waktu 11 struk |
+|---|---|---|
+| EasyOCR CRNN | 43 dari 66 = 65,2 persen | sekitar 65 dtk |
+| PP-OCRv4 rec | **55 dari 66 = 83,3 persen** | 20 dtk |
+
+Angka 43,9 persen di tag `diukur-uji3` diukur dengan `PENGENAL=easyocr`, dan
+`ppocr` **belum pernah diukur pada data bersih**. Karena itu bawaannya tetap
+`easyocr`. Salah setel menjatuhkan peladen saat hidup, bukan diam-diam
+kembali ke EasyOCR.
 
 ## Keamanan
 
