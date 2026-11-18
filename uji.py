@@ -483,5 +483,116 @@ assert _bhm(_is(12.20, 8.99))[0]["harga_satuan"] == 12.20
 assert _bhm(_is(20.0, 3.00, jm=0.15))[0]["harga_satuan"] == 20.0
 # harga baris tidak diketahui, tidak ada dasar membuang
 assert _bhm(_is(15900.0, None))[0]["harga_satuan"] == 15900.0
+# --- 15. huruf yang _uang petakan ke angka juga lolos _mirip_uang ---
+# Terukur di uji3: "Service Taxe6% RMO 48" untuk pajak 0,48 dan
+# "TAXABLE AMT RM3O . 80" untuk 30,80. Tanpa ini kotak berhuruf disaring
+# habis sebelum _uang berkesempatan memulihkannya, dan yang tersisa hanya
+# ekor desimalnya, yaitu 48,0 dan 80,0.
+from rantai import _mirip_uang as _mu  # noqa: E402
+
+assert _mu("RMO") is True            # RM0, nol ringgit
+assert _mu("RM3O") is True           # RM30
+assert _mu("1O.50") is True
+assert _mu("l0.50") is True
+assert _mu("RM32_") is True
+# Huruf tanpa lambang mata uang TIDAK boleh jadi uang
+assert _mu("O") is False
+assert _mu("OO") is False
+assert _mu("I") is False
+assert _mu("LOT") is False
+assert _mu("NO") is False
+assert _mu("Total") is False
+assert _mu("") is False
+assert _mu("RM") is False            # lambang saja, tanpa angka
+
+# --- 16. kata kunci dinilai pada jendela di kiri angka, bukan seluruh baris ---
+# Struk 11 mencetak dua pasangan dalam SATU baris:
+#     Total Saving 5. 32 Total 39, 25
+# Menilai seluruh baris membuat pembatal SAVING membatalkan 39,25 yang justru
+# jawaban benarnya. Jendela berhenti pada angka pertama ke kiri, jadi yang
+# dinilai hanya kata "Total" yang menempel pada angka terpilih.
+_gabung = [kotak("Total", 10, 10, 90, 30), kotak("Saving", 100, 10, 180, 30),
+           kotak("5.", 200, 10, 230, 30), kotak("32", 235, 10, 265, 30),
+           kotak("Total", 300, 10, 380, 30), kotak("39,", 400, 10, 430, 30),
+           kotak("25", 435, 10, 465, 30)]
+_h = _kjl(_gabung, 500, 50)
+assert (_h["total"] or {}).get("nilai") == 39.25, _h["total"]
+
+# Pembatal tetap bekerja ketika ia memang menempel pada angkanya
+_h = _kjl([kotak("Total", 10, 10, 90, 30), kotak("Saving", 100, 10, 180, 30),
+           kotak("5.", 200, 10, 230, 30), kotak("32", 235, 10, 265, 30)], 500, 50)
+assert (_h["total"] or {}).get("nilai") is None, _h["total"]
+
+# Sub Total sebaris tetap dibatalkan walau kata Total ada tepat di kiri angka
+_h = _kjl([kotak("Total", 10, 10, 60, 30), kotak("Item", 70, 10, 120, 30),
+           kotak("Sub", 200, 10, 240, 30), kotak("Total", 245, 10, 300, 30),
+           kotak("39.23", 400, 10, 470, 30)], 500, 50)
+assert (_h["total"] or {}).get("nilai") is None, _h["total"]
+
+# --- 17. pajak dari pasangan angka sebaris di baris ringkasan SST ---
+# Struk Malaysia mencetak tarif, dasar pengenaan, lalu nilai pajak dalam satu
+# baris. Mengambil gugus paling kanan tanpa memeriksa apa pun memberi 0,04
+# (pembulatan) di struk 01 dan 0,0 di struk 04.
+from rantai import (_cadangan_pajak_sebaris as _cps,  # noqa: E402
+                    _angka_tarif as _at, kelompok_baris as _kbr)
+
+_sst = [kotak("SST", 10, 10, 60, 30), kotak("6%", 70, 10, 110, 30),
+        kotak("81.00", 250, 10, 330, 30), kotak("4.84", 400, 10, 470, 30)]
+
+# pajak salah ditimpa oleh pasangan yang terbukti rasionya, dasar jadi subtotal
+_h = {"pajak": {"teks": "0.04", "nilai": 0.04, "yakin": 0.9, "bbox": [0, 0, 1, 1]},
+      "subtotal": None}
+_cps(_sst, _kbr(_sst), _h)
+assert _h["pajak"]["nilai"] == 4.84, _h["pajak"]
+assert _h["subtotal"]["nilai"] == 81.00, _h["subtotal"]
+
+# pajak yang SUDAH memenuhi tarif tidak pernah diganti
+_h = {"pajak": {"teks": "4.84", "nilai": 4.84, "yakin": 0.9, "bbox": [0, 0, 1, 1]},
+      "subtotal": None}
+_cps(_sst, _kbr(_sst), _h)
+assert _h["pajak"]["nilai"] == 4.84, _h["pajak"]
+
+# subtotal yang sudah terisi tidak ditimpa dasar pengenaan pajak
+_h = {"pajak": None,
+      "subtotal": {"teks": "80.00", "nilai": 80.00, "yakin": 0.9, "bbox": [0, 0, 1, 1]}}
+_cps(_sst, _kbr(_sst), _h)
+assert _h["pajak"]["nilai"] == 4.84, _h["pajak"]
+assert _h["subtotal"]["nilai"] == 80.00, _h["subtotal"]
+
+# baris pajak tanpa pasangan yang memenuhi tarif tidak menyentuh apa pun
+_bukan = [kotak("SST", 10, 10, 60, 30), kotak("12.00", 250, 10, 330, 30),
+          kotak("9.50", 400, 10, 470, 30)]
+_h = {"pajak": None, "subtotal": None}
+_cps(_bukan, _kbr(_bukan), _h)
+assert _h["pajak"] is None, _h["pajak"]
+
+# baris yang dibatalkan tidak dipakai walau rasionya kebetulan cocok
+_batal = [kotak("Tax", 10, 10, 50, 30), kotak("Not", 55, 10, 90, 30),
+          kotak("Applicable", 95, 10, 190, 30),
+          kotak("81.00", 250, 10, 330, 30), kotak("4.84", 400, 10, 470, 30)]
+_h = {"pajak": None, "subtotal": None}
+_cps(_batal, _kbr(_batal), _h)
+assert _h["pajak"] is None, _h["pajak"]
+
+# angka tarif ditolak sebagai dasar pengenaan pajak
+assert _at([kotak("6%", 0, 0, 1, 1)], 6.0) is True
+assert _at([kotak("6", 0, 0, 1, 1)], 6.0) is True
+assert _at([kotak("8", 0, 0, 1, 1)], 8.0) is True
+assert _at([kotak("6.00", 0, 0, 1, 1)], 6.0) is False      # bertitik, nilai uang
+assert _at([kotak("81.00", 0, 0, 1, 1)], 81.0) is False
+
+# Tarif 6 tidak boleh jadi dasar: pasangan (6, 0.48) lolos pita 8 persen
+# kalau penolakan tarif dilepas, dan itu terjadi di struk 09.
+_tarif = [kotak("Service", 10, 10, 80, 30), kotak("Tax", 85, 10, 120, 30),
+          kotak("6", 130, 10, 150, 30), kotak("0.48", 400, 10, 470, 30)]
+_h = {"pajak": None, "subtotal": None}
+_cps(_tarif, _kbr(_tarif), _h)
+assert _h["subtotal"] is None, _h["subtotal"]
+
+# gugus kiri ke kanan, bukan hanya yang paling kanan
+from rantai import _gugus_semua as _gs, _ambang_baris as _ab  # noqa: E402
+
+_g = _gs(_sst, _ab(_sst))
+assert [g[0]["teks"] for g in _g] == ["81.00", "4.84"], _g
 
 print("semua uji lolos")

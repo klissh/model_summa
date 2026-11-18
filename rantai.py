@@ -218,12 +218,34 @@ def _angka_baris(bar, label):
 _TANDA_ANGKA = set("0123456789.,-_")
 
 
+_HOMOGLIF = (("O", "0"), ("I", "1"), ("L", "1"), ("|", "1"))
+
+
 def _mirip_uang(teks):
-    """Kotak yang isinya hanya angka dan tanda baca angka, boleh berlambang RM."""
+    """Kotak yang isinya hanya angka dan tanda baca angka, boleh berlambang RM.
+
+    Huruf yang `_uang` SUDAH petakan ke angka diperlakukan sebagai angka di
+    sini juga. Tanpa ini kotak "RMO" (yaitu RM0) dan "RM3O" (yaitu RM30)
+    disaring habis sebelum `_uang` berkesempatan memulihkannya, lalu nilainya
+    hilang atau jadi ekor desimalnya saja. Terukur di uji3: "Service Taxe6%
+    RMO 48" untuk 0,48 dan "TAXABLE AMT RM3O . 80" untuk 30,80.
+
+    Digit sungguhan tetap diwajibkan, KECUALI bila ada lambang mata uang.
+    Jadi "RMO" sah sebagai uang sedangkan huruf "O" yang berdiri sendiri
+    tidak, dan kata seperti "LOT" atau "NO" tetap tersaring.
+    """
     s = (teks or "").strip().upper()
+    ada_mata = any(p in s for p in ("RM", "MYR", "$"))
     for buang in ("RM", "MYR", "$", " "):
         s = s.replace(buang, "")
-    return bool(s) and any(c.isdigit() for c in s) and all(c in _TANDA_ANGKA for c in s)
+    if not s:
+        return False
+    s2 = s
+    for a, b in _HOMOGLIF:
+        s2 = s2.replace(a, b)
+    if not all(c in _TANDA_ANGKA for c in s2):
+        return False
+    return any(c.isdigit() for c in s) or ada_mata
 
 
 def _harga_baris(bar):
@@ -639,11 +661,11 @@ def _ambang_baris(sebaris):
     return 0.6 * tin[len(tin) // 2]
 
 
-def _gugus_kanan(sebaris, ambang):
-    """Gugus angka paling kanan pada satu baris, potongannya sudah disatukan."""
+def _gugus_semua(sebaris, ambang):
+    """Seluruh gugus angka pada satu baris, urut dari kiri ke kanan."""
     calon = [b for b in sebaris if _mirip_uang(b["teks"])]
     if not calon:
-        return None
+        return []
     gugus, kini = [], [calon[0]]
     for b in calon[1:]:
         if b["bbox"][0] - kini[-1]["bbox"][2] <= ambang:
@@ -652,7 +674,39 @@ def _gugus_kanan(sebaris, ambang):
             gugus.append(kini)
             kini = [b]
     gugus.append(kini)
-    return gugus[-1]
+    return gugus
+
+
+def _gugus_kanan(sebaris, ambang):
+    """Gugus angka paling kanan pada satu baris, potongannya sudah disatukan."""
+    gugus = _gugus_semua(sebaris, ambang)
+    return gugus[-1] if gugus else None
+
+
+def _jendela_kiri(sebaris, gugus):
+    """Kata yang menempel di kiri gugus angka, tanpa menyeberangi angka lain.
+
+    Satu baris struk sering memuat DUA pasangan kata dan angka sekaligus:
+
+        Total Saving 5. 32 Total 39, 25
+
+    Menilai seluruh baris membuat kata pembatal "SAVING" membatalkan 39,25
+    yang justru jawaban benarnya, padahal kata yang menerangkan angka itu
+    hanyalah "Total" tepat di kirinya. Jendela berhenti pada angka pertama
+    yang ditemui ke kiri, jadi "Sub Total 39, 23" tetap terbaca SUBTOTAL dan
+    tetap dibatalkan.
+    """
+    x = min(b["bbox"][0] for b in gugus)
+    kiri = sorted((b for b in sebaris if b["bbox"][2] <= x),
+                  key=lambda b: b["bbox"][0], reverse=True)
+    kata = []
+    for b in kiri:
+        t = b["teks"] or ""
+        if _mirip_uang(t):
+            break
+        if any(c.isalpha() for c in t):
+            kata.append(t)
+    return "".join(c for c in "".join(reversed(kata)).upper() if c.isalpha())
 
 
 def _isi(h, medan, kotak2):
@@ -773,12 +827,94 @@ def _cadangan_kata(kot, idb, h):
         for r in urut:
             if not any(w in huruf[r] for w in kata):
                 continue
-            if any(w in huruf[r] for w in batal):
-                continue
             pilih = _gugus_kanan(baris[r], _ambang_baris(baris[r]))
-            if pilih and _uang_potongan([b["teks"] for b in pilih]) is not None:
+            if not pilih:
+                continue
+            # Kata kunci dan pembatal dinilai pada jendela di kiri angka yang
+            # dipilih, bukan pada seluruh baris. Lihat _jendela_kiri.
+            jendela = _jendela_kiri(baris[r], pilih)
+            if not any(w in jendela for w in kata):
+                continue
+            if any(w in jendela for w in batal):
+                continue
+            if _uang_potongan([b["teks"] for b in pilih]) is not None:
                 _isi(h, medan, pilih)
                 break
+    return h
+
+
+# Tarif SST Malaysia. Pitanya sempit dengan sengaja: pada 11 struk uji3
+# keenam nilai pajak berada di 5,98 sampai 6,01 persen dari dasarnya, jadi
+# pasangan palsu hampir mustahil. Service charge 10 persen TIDAK dimasukkan,
+# sebab ia medan `servis` yang terpisah dan memasukkannya membuat caj
+# perkhidmatan terambil sebagai pajak.
+#
+# shortcut: pita ini dari tarif 6 dan 8 persen saja, bukan dari sapuan besar.
+# Tambahkan tarif baru kalau Malaysia mengubahnya lagi.
+_PITA_SST = ((0.0580, 0.0620), (0.0780, 0.0820))
+_KATA_SST = ("GST", "SST", "TAX", "CUKAI")
+_BATAL_SST = ("INVOICE", "EXEMPT", "ZERO", "NOTAPPLICABLE")
+
+
+def _angka_tarif(gugus, nilai):
+    """Benar kalau gugus ini angka TARIF, bukan nilai uang.
+
+    "SST 6%" dan "6 Qo SST" memberi gugus bernilai 6 yang bukan dasar
+    pengenaan pajak. Tanpa penolakan ini, pasangan (6, 0.48) pada uji3_09
+    lolos pita 8 persen dan menetapkan dasar yang salah.
+    """
+    teks = " ".join(b["teks"] or "" for b in gugus)
+    if "%" in teks:
+        return True
+    return nilai in (6.0, 8.0, 10.0) and not any(c in ".," for c in teks)
+
+
+def _cadangan_pajak_sebaris(kot, idb, h):
+    """V7. Pajak dari pasangan angka SEBARIS pada baris ringkasan SST.
+
+    Struk Malaysia mencetak ringkasan pajak sebagai satu baris bertingkat:
+
+        SST 6%   81.00   4.84
+
+    yaitu tarif, dasar pengenaan pajak, lalu nilai pajaknya. Mengambil gugus
+    paling kanan tanpa memeriksa apa pun memberi jawaban yang percaya diri
+    tetapi salah: pada uji3 ia menghasilkan 0,04 (nilai pembulatan di baris
+    lain) dan 2,55 (nilai diskon).
+
+    Yang dicari di sini pasangan bersebelahan (dasar, pajak) yang rasionya
+    jatuh pada tarif SST. Dasarnya sekalian dipakai mengisi `subtotal` kalau
+    medan itu masih kosong, sebab pada tata letak ini dasar pengenaan pajak
+    memang subtotalnya.
+    """
+    baris = _baris_kotak(kot, idb)
+    huruf = {r: "".join(c for c in "".join(b["teks"] or "" for b in v).upper() if c.isalpha())
+             for r, v in baris.items()}
+    for r in sorted(baris):
+        if not any(w in huruf[r] for w in _KATA_SST):
+            continue
+        if any(w in huruf[r] for w in _BATAL_SST):
+            continue
+        sebaris = baris[r]
+        gugus = _gugus_semua(sebaris, _ambang_baris(sebaris))
+        nilai = [(g, _uang_potongan([b["teks"] for b in g])) for g in gugus]
+        nilai = [(g, v) for g, v in nilai if v is not None and v > 0]
+        for i in range(len(nilai) - 1):
+            (gd, dasar), (gp, pajak) = nilai[i], nilai[i + 1]
+            if _angka_tarif(gd, dasar):
+                continue
+            if not any(a <= pajak / dasar <= b for a, b in _PITA_SST):
+                continue
+            # Nilai yang sudah ada hanya ditimpa kalau ia TIDAK ikut memenuhi
+            # tarif terhadap dasar yang sama. Jadi pajak yang sudah benar
+            # tidak pernah diganti, sedangkan 0,04 (pembulatan) dan 0,0 pada
+            # uji3 diganti oleh pasangan yang terbukti aritmetikanya.
+            kini = (h.get("pajak") or {}).get("nilai")
+            if kini is not None and any(a <= kini / dasar <= b for a, b in _PITA_SST):
+                return h
+            _isi(h, "pajak", gp)
+            if (h.get("subtotal") or {}).get("nilai") is None:
+                _isi(h, "subtotal", gd)
+            return h
     return h
 
 
@@ -793,4 +929,5 @@ def ke_json_lengkap(kot, lebar, tinggi):
     h = _satukan_potongan(kot, idb, h)
     h = _cadangan_aturan(kot, lebar, tinggi, h)
     h = _cadangan_bentuk(kot, h)
-    return _cadangan_kata(kot, idb, h)
+    h = _cadangan_kata(kot, idb, h)
+    return _cadangan_pajak_sebaris(kot, idb, h)
