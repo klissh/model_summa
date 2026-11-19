@@ -256,6 +256,8 @@ def sehat():
         "vlm_gagal": vlm.gagal(),
         "vlm_detik": vlm.detik(),
         "vlm_galat": vlm.galat(),
+        "vlm_pakai_hari_ini": vlm.pakai_hari_ini(),
+        "vlm_batas_hari": vlm.BATAS_HARI,
         "rss_gb": round(p.memory_info().rss / 1e9, 2),
         "puncak_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2),
         "berkunci": bool(KUNCI),

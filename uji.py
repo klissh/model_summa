@@ -946,6 +946,24 @@ try:
     # per token sampai penyedianya berhenti sendiri
     assert _k.muatan["max_tokens"] == 300
 
+    # BATAS HARIAN. Pagar ongkos, bukan pagar lalu lintas: kunci peladen
+    # tertanam di aplikasi ponsel dan harus dianggap bisa bocor. Saat jatah
+    # habis, VLM DIAM, bukan melempar galat, sehingga pemindaian tetap jalan
+    # dan medannya tetap kosong seperti sebelum VLM ada.
+    _simpan_batas, _vlm.BATAS_HARI = _vlm.BATAS_HARI, 2
+    _vlm._hari, _vlm._pakai = "", 0
+    _k = _balas('{"total": "1.00"}')
+    assert _vlm.tanya(_CITRA, ["total"], uang=_uang, kirim=_k) == {"total": 1.0}
+    assert _vlm.tanya(_CITRA, ["total"], uang=_uang, kirim=_k) == {"total": 1.0}
+    assert _vlm.pakai_hari_ini() == 2
+    assert _vlm.tanya(_CITRA, ["total"], uang=_uang, kirim=_k) == {}
+    assert "jatah harian" in _vlm.galat(), _vlm.galat()
+    # hari berganti, jatah pulih
+    _vlm._hari = "2000-01-01"
+    assert _vlm.pakai_hari_ini() == 0
+    assert _vlm.tanya(_CITRA, ["total"], uang=_uang, kirim=_k) == {"total": 1.0}
+    _vlm.BATAS_HARI = _simpan_batas
+
     # gerbang dan pemanggil bersambung: jawaban VLM hanya masuk ke medan yang
     # gerbangnya buka, dan medan berisi tetap tidak tertimpa
     _kon = _kontrak(total=16.75)

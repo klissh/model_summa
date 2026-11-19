@@ -68,11 +68,20 @@ MUTU = 85
 # sendiri.
 MAKS_TOKEN = 300
 
+# Batas keras panggilan VLM per hari UTC. Ini pagar ONGKOS, bukan pagar lalu
+# lintas: kunci peladen tertanam di aplikasi ponsel, dan aplikasi ponsel bisa
+# dibongkar, jadi kunci itu harus dianggap bisa bocor. Saat batas tercapai VLM
+# diam dan medan tetap kosong, persis seperti sebelum VLM ada, bukan galat
+# yang menjatuhkan pemindaian.
+BATAS_HARI = int(_env("VLM_BATAS_HARI", "200"))
+
 _gagal = 0
 _detik = 0.0
 # Galat terakhir, dilaporkan endpoint sehat. Tanpa ini satu-satunya gejala
 # kegagalan adalah pencacah yang naik, dan sebabnya hanya bisa ditebak.
 _galat = ""
+_hari = ""
+_pakai = 0
 
 MEDAN_UANG = ("subtotal", "pajak", "total", "tunai", "kembalian")
 
@@ -98,12 +107,18 @@ PERINTAH = (
     "add up items, do not infer.\n"
     "2. If a field is not printed on this receipt, return null for it. "
     "Returning null is correct and expected.\n"
-    "3. Money fields: digits only, dot as decimal separator, no currency "
+    "3. A money field counts as printed ONLY if the receipt has a line "
+    "labelled for that field: SST, GST or Tax for pajak; Cash for "
+    "tunai; Change for kembalian. Never take the number from a line "
+    "with a different label such as Others, Rounding Adj, Discount, "
+    "Points, or a card or wallet name. Never compute it from other "
+    "numbers. If there is no such line, return null.\n"
+    "4. Money fields: digits only, dot as decimal separator, no currency "
     "symbol, for example 93.90\n"
-    "4. jam: copy the printed time exactly as printed, including AM or PM "
+    "5. jam: copy the printed time exactly as printed, including AM or PM "
     "and seconds if printed.\n"
-    "5. tanggal: copy the printed date exactly as printed.\n"
-    "6. toko: the shop name as printed at the top.\n"
+    "6. tanggal: copy the printed date exactly as printed.\n"
+    "7. toko: the shop name as printed at the top.\n"
 )
 
 _ARTI = {
@@ -138,6 +153,22 @@ def detik():
 
 def galat():
     return _galat
+
+
+def pakai_hari_ini():
+    return _pakai if _hari == time.strftime("%Y-%m-%d", time.gmtime()) else 0
+
+
+def _ambil_jatah():
+    """True kalau masih ada jatah hari ini, sekaligus memakainya satu."""
+    global _hari, _pakai
+    kini = time.strftime("%Y-%m-%d", time.gmtime())
+    if kini != _hari:
+        _hari, _pakai = kini, 0
+    if _pakai >= BATAS_HARI:
+        return False
+    _pakai += 1
+    return True
 
 
 def _citra_base64(sumber):
@@ -222,6 +253,9 @@ def tanya(sumber, medan, uang=None, kirim=None):
     """
     global _gagal, _detik, _galat
     if not medan or not aktif():
+        return {}
+    if not _ambil_jatah():
+        _galat = "jatah harian %d panggilan habis" % BATAS_HARI
         return {}
     nama = [m["medan"] if isinstance(m, dict) else m for m in medan]
     t0 = time.perf_counter()
