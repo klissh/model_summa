@@ -918,6 +918,45 @@ def _cadangan_pajak_sebaris(kot, idb, h):
     return h
 
 
+_KATA_EWALLET = ("WALLET", "TNG", "EWALLET", "DUITNOW", "BOOST", "GRABPAY",
+                 "SHOPEEPAY", "QRPAY")
+_KATA_KARTU = ("VISA", "MASTERCARD", "MYDEBIT", "DEBITCARD", "CREDITCARD")
+
+
+def _pindah_nontunai(kot, idb, h):
+    """Pindahkan nilai `tunai` ke emoney atau kartu kalau barisnya menyebut
+    alat bayar nontunai.
+
+    Alasannya sudah tercatat di MEDAN_RINGKASAN: model jarang meramalkan medan
+    nontunai sebab di data latih hanya 7 struk emoney dan 13 kartu dari 162,
+    sehingga struk DuitNow QR terlihat seperti dibayar tunai. Baris alat bayar
+    di struk Malaysia memuat namanya, misalnya "AMBANK TNGWALLET 61.20", jadi
+    kata itulah buktinya, bukan tebakan.
+    """
+    e = h.get("tunai")
+    if not e or e.get("nilai") is None:
+        return h
+    x0, y0, x1, y1 = e["bbox"]
+    baris = set()
+    for b, r in zip(kot, idb):
+        bx = b["bbox"]
+        if bx[0] >= x0 and bx[2] <= x1 and bx[1] >= y0 and bx[3] <= y1:
+            baris.add(r)
+    if not baris:
+        return h
+    huruf = "".join(c for c in "".join(
+        b["teks"] or "" for b, r in zip(kot, idb) if r in baris).upper()
+        if c.isalpha())
+    for tujuan, kata in (("emoney", _KATA_EWALLET), ("kartu", _KATA_KARTU)):
+        if not any(w in huruf for w in kata):
+            continue
+        if (h.get(tujuan) or {}).get("nilai") is not None:
+            return h
+        h[tujuan] = h.pop("tunai")
+        return h
+    return h
+
+
 def ke_json_lengkap(kot, lebar, tinggi):
     """ke_json ditambah penambalan agregasi V6. Inilah yang dipakai server.
 
@@ -930,4 +969,5 @@ def ke_json_lengkap(kot, lebar, tinggi):
     h = _cadangan_aturan(kot, lebar, tinggi, h)
     h = _cadangan_bentuk(kot, h)
     h = _cadangan_kata(kot, idb, h)
-    return _cadangan_pajak_sebaris(kot, idb, h)
+    h = _cadangan_pajak_sebaris(kot, idb, h)
+    return _pindah_nontunai(kot, idb, h)

@@ -1023,4 +1023,68 @@ finally:
 
 print("21. pemanggil VLM: lolos")
 
+
+# ---------------------------------------------------------------------------
+# 22. BAYARAN NONTUNAI TIDAK DIBACA SEBAGAI TUNAI
+#
+# Dasarnya dua struk ST Rosyam Mart yang BUKAN bagian uji3. Yang pertama
+# dibayar "AMBANK TNGWALLET 61.20" dan sistem membacanya tunai 61,20, padahal
+# jawaban benarnya emoney 61,20 dan tunai kosong. Yang kedua dibayar "CASH
+# 12.00" dan harus TETAP tunai.
+#
+# Diukur sebelum dipasang: uji3 tetap 35 dari 66, tidak satu medan pun
+# berubah, sedangkan struk pertama naik dari 3 jadi 5 dari 6 medan uang.
+# ---------------------------------------------------------------------------
+from rantai import _pindah_nontunai  # noqa: E402
+
+
+def _baris_bayar(teks_kiri, nilai_teks):
+    """Satu baris: kata alat bayar di kiri, angkanya di kanan."""
+    kot = []
+    x = 0
+    for t in teks_kiri.split():
+        kot.append({"teks": t, "bbox": [x, 100, x + 40, 120],
+                    "_label": "O", "_yakin": 0.9})
+        x += 45
+    kot.append({"teks": nilai_teks, "bbox": [300, 100, 360, 120],
+                "_label": "total.cashprice", "_yakin": 0.9})
+    idb = [0] * len(kot)
+    h = {"tunai": {"teks": nilai_teks, "nilai": 61.20, "yakin": 0.9,
+                   "bbox": [300, 100, 360, 120]}}
+    return kot, idb, h
+
+
+# dompet elektronik: pindah ke emoney, tunai jadi kosong
+_kot, _idb, _h = _baris_bayar("AMBANK TNGWALLET", "61.20")
+_h = _pindah_nontunai(_kot, _idb, _h)
+assert "tunai" not in _h, _h
+assert _h["emoney"]["nilai"] == 61.20, _h
+
+# DuitNow QR juga
+_kot, _idb, _h = _baris_bayar("DUITNOW QR", "61.20")
+assert _pindah_nontunai(_kot, _idb, _h).get("emoney", {}).get("nilai") == 61.20
+
+# kartu pindah ke kartu, bukan emoney
+_kot, _idb, _h = _baris_bayar("VISA CARD", "61.20")
+_h = _pindah_nontunai(_kot, _idb, _h)
+assert "tunai" not in _h and _h["kartu"]["nilai"] == 61.20, _h
+
+# CASH TETAP TUNAI. Ini yang menjaga struk kedua tidak ikut rusak.
+_kot, _idb, _h = _baris_bayar("CASH", "61.20")
+_h = _pindah_nontunai(_kot, _idb, _h)
+assert _h["tunai"]["nilai"] == 61.20 and "emoney" not in _h, _h
+
+# medan tujuan yang SUDAH berisi tidak ditimpa, dan tunai dibiarkan
+_kot, _idb, _h = _baris_bayar("AMBANK TNGWALLET", "61.20")
+_h["emoney"] = {"teks": "9.00", "nilai": 9.00, "yakin": 0.9,
+                "bbox": [300, 200, 360, 220]}
+_h = _pindah_nontunai(_kot, _idb, _h)
+assert _h["emoney"]["nilai"] == 9.00 and _h["tunai"]["nilai"] == 61.20, _h
+
+# tunai kosong tidak diapa-apakan
+assert _pindah_nontunai([], [], {}) == {}
+assert _pindah_nontunai([], [], {"tunai": None}) == {"tunai": None}
+
+print("22. bayaran nontunai: lolos")
+
 print("semua uji lolos")
