@@ -431,7 +431,9 @@ def ke_json(kot, lebar, tinggi):
         bar = sorted(per_baris[r], key=lambda z: z["bbox"][0])
         nm = _buang_barcode(" ".join(b["teks"] for b in bar if b["_label"] == "menu.nm"))
         if not (nm or any(b["_label"] == "menu.price" for b in bar)): continue
-        jml = _angka_baris(bar, "menu.cnt")
+        # Kolom "satuan * kuantitas" didahulukan: ia memuat kuantitas yang
+        # dicetak apa adanya, sedangkan menu.cnt sering hanya potongannya.
+        jml = _angka_bintang(bar, _ambang_baris(bar)) or _angka_baris(bar, "menu.cnt")
         item.append({
             "nama": nm or None,
             # Struk tanpa kolom kuantitas, seperti 99 Speed Mart, berarti satu
@@ -675,6 +677,59 @@ def _uang_potongan(potong):
             if kepala is not None:
                 return kepala + int(ekor) / 100.0
     return v
+
+
+def _angka_bintang(bar, ambang):
+    """Kuantitas dari kolom "satuan * kuantitas", atau None.
+
+    Struk pasar swalayan Malaysia mencetak barisnya begini:
+
+        025102000133004043   3.29*0.404   1.33
+
+    yaitu barcode, lalu harga satuan kali kuantitas, lalu harga baris. Yang
+    penting di sini: ketika pengenal kehilangan angka depan harga satuan,
+    KUANTITAS DI KANAN BINTANG SERING SELAMAT. Pada struk ST Rosyam Mart
+    kotaknya berbunyi "29*0." lalu "404", sehingga harga satuannya rusak
+    tetapi 0,404 masih utuh.
+
+    Tanpa ini, menu.cnt menangkap potongannya saja dan aplikasi menampilkan
+    kuantitas 404, 503, atau 480 untuk sayur yang dijual per kilogram.
+
+    Dua penjaga:
+
+    1. Harus ada ANGKA tepat sebelum bintang di kotak yang sama. Itu yang
+       membedakan kolom harga dari nama barang: "85GM *5'S" dan "RING*KG"
+       bukan kolom kuantitas, dan keduanya ada di struk yang sama.
+    2. Perluasan ke kanan berhenti pada jarak antarkotak, sama seperti
+       _gugus_semua, supaya harga baris di kolom kanan tidak ikut tertelan.
+    """
+    for i, b in enumerate(bar):
+        t = b["teks"] or ""
+        if "*" not in t:
+            continue
+        kepala, _, ekor = t.rpartition("*")
+        if not (kepala and kepala.rstrip()[-1:].isdigit()):
+            continue
+        potong, kanan = [ekor], b["bbox"][2]
+        for c in bar[i + 1:]:
+            if c["bbox"][0] - kanan > ambang:
+                break
+            potong.append(c["teks"] or "")
+            kanan = c["bbox"][2]
+        s = _re.sub(r"[^0-9.]", "", "".join(potong))
+        # Titik ganda muncul di sambungan potongan: "0." + ".420" jadi "0..420"
+        if s.count(".") > 1:
+            k = s.find(".")
+            s = s[:k + 1] + s[k + 1:].replace(".", "")
+        if not s or s == ".":
+            continue
+        try:
+            v = float(s)
+        except ValueError:
+            continue
+        if 0 < v <= JUMLAH_MAKS:
+            return v
+    return None
 
 
 def _baris_kotak(kot, idb):

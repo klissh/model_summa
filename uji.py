@@ -1137,6 +1137,39 @@ assert jumlah_tampil(None) is None
 assert jumlah_tampil("2") is None
 assert jumlah_tampil(True) is None        # bool bukan kuantitas
 
+# --- 23b. kuantitas dari kolom "satuan kali kuantitas" ---
+# Seluruh angka di bawah ini diambil apa adanya dari struk ST Rosyam Mart,
+# termasuk cara pengenal memecah kotaknya.
+from rantai import _angka_bintang  # noqa: E402
+
+
+def _kk(*pasang):
+    """Kotak sebaris: (teks, x0, x1). Tinggi dibuat tetap 20 piksel."""
+    return [{"teks": t, "bbox": [x0, 100, x1, 120]} for t, x0, x1 in pasang]
+
+
+_AMB = 12  # 0,6 x 20
+
+# "3.29*0.404" terpecah jadi "29*0." lalu "404", dan harga baris jauh di kanan
+assert _angka_bintang(_kk(("29*0.", 100, 160), ("404", 165, 200),
+                          ("1.33", 300, 340)), _AMB) == 0.404
+# titik ganda di sambungan: "1." + ".022"
+assert _angka_bintang(_kk((".99*1.", 100, 160), (".022", 165, 200),
+                          ("7.14", 300, 340)), _AMB) == 1.022
+# kuantitas bulat, dan harga baris TIDAK ikut tertelan sebab jaraknya jauh
+assert _angka_bintang(_kk(("1.99*1", 100, 160), (".99", 300, 340)), _AMB) == 1.0
+# "FRZ SOTONG RING*KG" bukan kolom kuantitas: tidak ada angka sebelum bintang
+assert _angka_bintang(_kk(("RING*KG", 100, 180)), _AMB) is None
+# "85GM *5'S" juga bukan: bintangnya didahului spasi
+assert _angka_bintang(_kk(("*5", 100, 140)), _AMB) is None
+assert _angka_bintang(_kk(("85GM", 100, 140), ("*5", 145, 170)), _AMB) is None
+# hasil mustahil ditolak
+assert _angka_bintang(_kk(("2*500", 100, 160)), _AMB) is None
+# tanpa bintang
+assert _angka_bintang(_kk(("2.30", 100, 140)), _AMB) is None
+# bintang tanpa ekor angka
+assert _angka_bintang(_kk(("5*", 100, 140), ("KG", 145, 170)), _AMB) is None
+
 print("23. kuantitas tampil: lolos")
 
 print("semua uji lolos")
