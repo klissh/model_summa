@@ -107,20 +107,20 @@ PERINTAH = (
     "add up items, do not infer.\n"
     "2. If a field is not printed on this receipt, return null for it. "
     "Returning null is correct and expected.\n"
-    "3. A money field counts as printed ONLY if the receipt has a line "
-    "labelled for that field: SST, GST or Tax for pajak; Cash for "
-    "tunai; Change for kembalian. Never take the number from a line "
-    "with a different label such as Others, Rounding Adj, Discount, "
-    "Points, or a card or wallet name. Never compute it from other "
-    "numbers. If there is no such line, return null.\n"
-    "4. Money fields: digits only, dot as decimal separator, no currency "
+    "3. Money fields: digits only, dot as decimal separator, no currency "
     "symbol, for example 93.90\n"
-    "5. jam: copy the printed time exactly as printed, including AM or PM "
+    "4. jam: copy the printed time exactly as printed, including AM or PM "
     "and seconds if printed.\n"
-    "6. tanggal: copy the printed date exactly as printed.\n"
-    "7. toko: the shop name as printed at the top.\n"
+    "5. tanggal: copy the printed date exactly as printed.\n"
+    "6. toko: the shop name as printed at the top.\n"
 )
 
+# JANGAN tambahkan aturan "medan uang hanya sah kalau barisnya berlabel medan
+# itu". Aturan itu pernah dipasang pada 29239be dan DIUKUR MERUGIKAN: pada 11
+# struk uji3 ia tidak membetulkan satu pun dari dua kesalahan pajak yang jadi
+# alasannya (uji3_05 tetap 9,20 dan uji3_11 tetap 0,02, nilainya identik
+# antarlari), sementara ia membuat VLM menolak dua jawaban yang BENAR, yaitu
+# tunai dan kembalian pada uji3_07. Hasilnya 49 dari 66 turun jadi 47.
 _ARTI = {
     "toko": "shop name",
     "tanggal": "date as printed",
