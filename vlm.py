@@ -115,12 +115,20 @@ PERINTAH = (
     "6. toko: the shop name as printed at the top.\n"
 )
 
-# JANGAN tambahkan aturan "medan uang hanya sah kalau barisnya berlabel medan
-# itu". Aturan itu pernah dipasang pada 29239be dan DIUKUR MERUGIKAN: pada 11
-# struk uji3 ia tidak membetulkan satu pun dari dua kesalahan pajak yang jadi
-# alasannya (uji3_05 tetap 9,20 dan uji3_11 tetap 0,02, nilainya identik
-# antarlari), sementara ia membuat VLM menolak dua jawaban yang BENAR, yaitu
-# tunai dan kembalian pada uji3_07. Hasilnya 49 dari 66 turun jadi 47.
+# Aturan "medan uang hanya sah kalau barisnya berlabel medan itu" pernah
+# dipasang pada 29239be lalu dicabut pada a808c0a. Yang TERBUKTI: ia tidak
+# membetulkan satu pun dari dua kesalahan pajak yang jadi alasannya, sebab
+# uji3_05 tetap 9,20 dan uji3_11 tetap 0,02, nilainya identik antarlari.
+#
+# KOREKSI, 19 November 2026. Pesan a808c0a juga menyalahkan aturan itu atas
+# hilangnya dua jawaban benar pada uji3_07. Itu SALAH. Lari ketiga memakai
+# perintah yang sudah dicabut ini, dan uji3_07 tunai serta kembalian TETAP
+# tidak dijawab. Jadi penyebabnya bukan perintah, melainkan keluaran VLM yang
+# TIDAK BERULANG antarlari, walaupun temperature 0: OpenRouter menyalurkan ke
+# tiga penyedia dengan kuantisasi berbeda, yaitu fp8 dan bf16.
+#
+# Akibat praktisnya untuk pengukuran: satu lari BUKAN angka yang bisa
+# dipercaya. Derau antarlari terukur 2 medan dari 66, yaitu 49 lawan 47.
 _ARTI = {
     "toko": "shop name",
     "tanggal": "date as printed",
