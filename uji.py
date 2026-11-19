@@ -814,6 +814,44 @@ assert _k["ringkasan"]["total"]["asal"] is None
 assert _k["toko"] == "99 SPEED MART"
 assert "asalVlm" not in _k
 
+# PITA PAJAK. Dua kesalahan VLM yang terukur pada uji3 keduanya di medan
+# pajak, dan memperketat perintah terbukti tidak menolong sama sekali.
+# Angka-angka di bawah ini diambil persis dari dua struk itu.
+
+# uji3_11: pajaknya Service Tax@6% RM0.48, dan VLM menjawab Rounding Adj 0,02
+_k = _kontrak(subtotal=8.00)
+assert _gv.tambal(_k, {"pajak": 0.48}, _ATAS + _BAWAH, _TINGGI) == ["pajak"]
+assert _k["ringkasan"]["pajak"]["nilai"] == 0.48
+_k = _kontrak(subtotal=8.00)
+assert _gv.tambal(_k, {"pajak": 0.02}, _ATAS + _BAWAH, _TINGGI) == []
+assert _k["ringkasan"]["pajak"]["nilai"] is None
+
+# uji3_05: subtotal BELUM ada, jadi dasarnya total. Others 9,20 itu sisa
+# bayaran, bukan pajak, dan struk itu memang tidak memuat pajak.
+_k = _kontrak(total=57.80)
+assert _gv.tambal(_k, {"pajak": 9.20}, _ATAS + _BAWAH, _TINGGI) == []
+
+# subtotal yang ikut dijawab VLM pada permintaan yang sama tetap jadi dasar,
+# jadi hasilnya tidak bergantung pada urutan penulisan
+_k = _kontrak()
+_t = _gv.tambal(_k, {"subtotal": 57.80, "pajak": 9.20}, _ATAS + _BAWAH, _TINGGI)
+assert _t == ["subtotal"], _t
+
+# 8 persen diterima, dan pita dihitung terhadap total juga
+assert _gv.tambal(_kontrak(subtotal=100.0), {"pajak": 8.00},
+                  _ATAS + _BAWAH, _TINGGI) == ["pajak"]
+assert _gv.tambal(_kontrak(total=8.50), {"pajak": 0.48},
+                  _ATAS + _BAWAH, _TINGGI) == ["pajak"]
+
+# TANPA DASAR, jawaban diloloskan. Menolak tanpa bukti itu persis kesalahan
+# veto matematika yang sudah terukur membuang jawaban benar.
+_k = _kontrak()
+assert _gv.tambal(_k, {"pajak": 9.20}, _ATAS + _BAWAH, _TINGGI) == ["pajak"]
+
+# pita hanya berlaku untuk pajak, medan lain tidak disentuh
+_k = _kontrak(subtotal=8.00)
+assert _gv.tambal(_k, {"total": 999.0}, _ATAS + _BAWAH, _TINGGI) == ["total"]
+
 # medan yang gerbangnya tolak karena zona pun tidak tertulis
 _k = _kontrak()
 assert _gv.tambal(_k, {"total": 93.90}, _ATAS, _TINGGI) == []

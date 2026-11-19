@@ -48,6 +48,27 @@ ZONA = {"atas": (0.00, 0.45), "bawah": (0.40, 1.00)}
 # medan yang dicari.
 KOTAK_MIN = 2
 
+# Pita tarif pajak Malaysia, satu-satunya pemeriksaan angka atas jawaban VLM.
+#
+# Alasannya terukur. Dua kesalahan VLM pada 11 struk uji3 keduanya di medan
+# pajak, dan keduanya mengambil angka dari baris lain: uji3_05 mengambil
+# "Others: 9.20", yang sebenarnya sisa bayaran sebab Total 57,80 = Mykasih
+# 48,60 + Others 9,20, dan uji3_11 mengambil "Rounding Adj. RM0.02" padahal
+# pajaknya "Service Tax@6% RM0.48". Memperketat perintah TIDAK menolong
+# sedikit pun, terukur pada commit 29239be: kedua nilai itu keluar identik,
+# sementara dua jawaban yang benar justru hilang.
+#
+# Pitanya dilebarkan supaya sah dipakai terhadap subtotal MAUPUN terhadap
+# total, sebab subtotal sering belum ada saat pemeriksaan: 6 persen atas
+# subtotal sama dengan 5,66 persen atas total, dan 8 persen sama dengan 7,41
+# persen. Dasarnya rantai.py yang memakai pita sempit 6 dan 8 persen, dan di
+# sana keenam nilai pajak uji3 terukur berada di 5,98 sampai 6,01 persen.
+#
+# shortcut: tarif Malaysia saja, yaitu 6 dan 8 persen. Struk dari negara lain
+# atau pajak yang dibulatkan akan ditolak. Naikkan jadi daftar tarif per
+# negara kalau aplikasi dipakai di luar Malaysia.
+_PITA_PAJAK = ((0.0545, 0.0625), (0.0715, 0.0825))
+
 
 def _kosong(nilai):
     """Hanya None dan teks kosong yang dianggap belum ada.
@@ -87,6 +108,29 @@ def _cukup_kotak(kotak, tinggi, zona):
     return False
 
 
+def _wajar_pajak(nilai, dasar):
+    """False hanya kalau ADA dasar dan nisbahnya di luar pita tarif.
+
+    Tanpa dasar, jawabannya diloloskan: tidak ada bukti untuk menolak, dan
+    menolak tanpa bukti itu persis kesalahan yang membuat veto matematika
+    usulan sebelumnya membuang jawaban benar.
+    """
+    if not isinstance(nilai, (int, float)) or not dasar or dasar <= 0:
+        return True
+    r = float(nilai) / float(dasar)
+    return any(a <= r <= b for a, b in _PITA_PAJAK)
+
+
+def _dasar_pajak(kontrak, jawaban):
+    """Subtotal kalau ada, kalau tidak total. Jawaban VLM ikut diperhitungkan
+    supaya hasilnya tidak bergantung pada urutan penulisan."""
+    for m in ("subtotal", "total"):
+        for v in (jawaban.get(m), _nilai(kontrak, m)):
+            if isinstance(v, (int, float)) and v > 0:
+                return float(v)
+    return None
+
+
 def perlu_tambal(kontrak, kotak, tinggi):
     """Daftar medan yang boleh ditanyakan ke VLM, beserta zona pemotongnya.
 
@@ -118,9 +162,12 @@ def tambal(kontrak, jawaban, kotak, tinggi):
     if not jawaban:
         return []
     izin = {m["medan"] for m in perlu_tambal(kontrak, kotak, tinggi)}
+    dasar = _dasar_pajak(kontrak, jawaban)
     tertulis = []
     for medan, nilai in jawaban.items():
         if medan not in izin or _kosong(nilai):
+            continue
+        if medan == "pajak" and not _wajar_pajak(nilai, dasar):
             continue
         if medan in MEDAN_ATAS:
             kontrak[medan] = nilai
