@@ -41,10 +41,21 @@ import re
 import time
 import urllib.request
 
-URL = os.environ.get(
-    "VLM_URL", "https://openrouter.ai/api/v1/chat/completions")
-MODEL = os.environ.get("VLM_MODEL", "qwen/qwen2.5-vl-7b-instruct")
-BATAS_DETIK = float(os.environ.get("VLM_BATAS_DETIK", "40"))
+def _env(nama, bawaan):
+    """Nilai lingkungan, dengan RAGAM KOSONG diperlakukan sebagai tidak disetel.
+
+    Bedanya menentukan. os.environ.get(nama, bawaan) mengembalikan teks kosong
+    kalau ragamnya ada tetapi kosong, dan Railway menyimpan ragam kosong
+    sebagai ragam yang ada. Akibatnya URL jadi "" dan urllib melemparkan
+    ValueError dalam hitungan milidetik, 11 kali berturut-turut, tanpa satu
+    byte pun menyentuh jaringan.
+    """
+    return (os.environ.get(nama) or "").strip() or bawaan
+
+
+URL = _env("VLM_URL", "https://openrouter.ai/api/v1/chat/completions")
+MODEL = _env("VLM_MODEL", "qwen/qwen2.5-vl-7b-instruct")
+BATAS_DETIK = float(_env("VLM_BATAS_DETIK", "40"))
 
 # shortcut: 1600 piksel sisi terpanjang dan mutu 85, mencerminkan yang
 # diunggah aplikasi. Naikkan kalau terukur VLM salah baca angka kecil.
@@ -59,6 +70,9 @@ MAKS_TOKEN = 300
 
 _gagal = 0
 _detik = 0.0
+# Galat terakhir, dilaporkan endpoint sehat. Tanpa ini satu-satunya gejala
+# kegagalan adalah pencacah yang naik, dan sebabnya hanya bisa ditebak.
+_galat = ""
 
 MEDAN_UANG = ("subtotal", "pajak", "total", "tunai", "kembalian")
 
@@ -120,6 +134,10 @@ def gagal():
 
 def detik():
     return round(_detik, 3)
+
+
+def galat():
+    return _galat
 
 
 def _citra_base64(sumber):
@@ -202,7 +220,7 @@ def tanya(sumber, medan, uang=None, kirim=None):
     `kirim` menggantikan pengirim HTTP, dipakai uji. Galat apa pun jatuh ke
     jawaban kosong, sehingga medannya tetap kosong seperti sebelum ada VLM.
     """
-    global _gagal, _detik
+    global _gagal, _detik, _galat
     if not medan or not aktif():
         return {}
     nama = [m["medan"] if isinstance(m, dict) else m for m in medan]
@@ -211,8 +229,12 @@ def tanya(sumber, medan, uang=None, kirim=None):
         muatan = _muatan(nama, _citra_base64(sumber))
         balas = (kirim or _kirim_http)(muatan)
         mentah = _json_pertama(_teks_jawaban(balas))
-    except Exception:
+    except Exception as e:
         _gagal += 1
+        _galat = "%s: %s" % (type(e).__name__, str(e)[:160])
+        k = (os.environ.get("KUNCI_VLM") or "").strip()
+        if k and k in _galat:
+            _galat = _galat.replace(k, "<kunci>")
         _detik += time.perf_counter() - t0
         return {}
     _detik += time.perf_counter() - t0

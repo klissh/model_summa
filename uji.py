@@ -853,6 +853,19 @@ def _balas(isi):
 
 
 try:
+    # RAGAM KOSONG sama dengan tidak disetel. Railway menyimpan ragam kosong
+    # sebagai ragam yang ada, dan os.environ.get dengan bawaan akan
+    # mengembalikan teks kosong itu, sehingga URL jadi "" dan urllib
+    # melemparkan ValueError dalam milidetik tanpa menyentuh jaringan.
+    os.environ["VLM_URL"] = ""
+    assert _vlm._env("VLM_URL", "bawaan") == "bawaan"
+    os.environ["VLM_URL"] = "   "
+    assert _vlm._env("VLM_URL", "bawaan") == "bawaan"
+    os.environ["VLM_URL"] = " https://contoh/v1 "
+    assert _vlm._env("VLM_URL", "bawaan") == "https://contoh/v1"
+    os.environ.pop("VLM_URL", None)
+    assert _vlm._env("VLM_URL", "bawaan") == "bawaan"
+
     # BAWAAN MATI. Dua syarat, bukan satu: kunci yang tertinggal di
     # lingkungan tidak boleh membuat peladen memanggil jaringan.
     os.environ.pop("VLM", None)

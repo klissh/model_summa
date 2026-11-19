@@ -255,6 +255,7 @@ def sehat():
         "vlm": vlm.MODEL if vlm.aktif() else False,
         "vlm_gagal": vlm.gagal(),
         "vlm_detik": vlm.detik(),
+        "vlm_galat": vlm.galat(),
         "rss_gb": round(p.memory_info().rss / 1e9, 2),
         "puncak_gb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6, 2),
         "berkunci": bool(KUNCI),
