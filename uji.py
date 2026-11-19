@@ -814,6 +814,26 @@ assert _k["ringkasan"]["total"]["asal"] is None
 assert _k["toko"] == "99 SPEED MART"
 assert "asalVlm" not in _k
 
+# SATU STRUK SATU CARA BAYAR. Kalau kartu atau dompet digital sudah berisi,
+# tunai yang kosong itu memang kosong. Tanpa ini, struk ST Rosyam Mart yang
+# dibayar AMBANK TNGWALLET menampilkan pembayaran 61,20 DUA KALI di aplikasi,
+# sebab model mengisi emoney lalu VLM mengisi tunai dari baris yang sama.
+_k = _kontrak()
+_k["ringkasan"]["emoney"] = {"nilai": 61.20, "teks": "61.20", "keyakinan": 0.9,
+                             "asal": "model"}
+assert "tunai" not in _nama(_gv.perlu_tambal(_k, _ATAS + _BAWAH, _TINGGI))
+_k = _kontrak()
+_k["ringkasan"]["kartu"] = {"nilai": 61.20, "teks": "61.20", "keyakinan": 0.9,
+                            "asal": "model"}
+assert "tunai" not in _nama(_gv.perlu_tambal(_k, _ATAS + _BAWAH, _TINGGI))
+# tanpa pembayaran nontunai, tunai tetap ditanyakan
+assert "tunai" in _nama(_gv.perlu_tambal(_kontrak(), _ATAS + _BAWAH, _TINGGI))
+# medan lain tidak ikut terkunci
+_k = _kontrak()
+_k["ringkasan"]["emoney"] = {"nilai": 61.20, "teks": "61.20", "keyakinan": 0.9,
+                             "asal": "model"}
+assert "kembalian" in _nama(_gv.perlu_tambal(_k, _ATAS + _BAWAH, _TINGGI))
+
 # PITA PAJAK. Dua kesalahan VLM yang terukur pada uji3 keduanya di medan
 # pajak, dan memperketat perintah terbukti tidak menolong sama sekali.
 # Angka-angka di bawah ini diambil persis dari dua struk itu.
@@ -1086,5 +1106,37 @@ assert _pindah_nontunai([], [], {}) == {}
 assert _pindah_nontunai([], [], {"tunai": None}) == {"tunai": None}
 
 print("22. bayaran nontunai: lolos")
+
+
+# ---------------------------------------------------------------------------
+# 23. KUANTITAS YANG DITAMPILKAN APLIKASI
+#
+# Dua kerusakan nyata di layar aplikasi pada struk ST Rosyam Mart: kuantitas
+# 404, 503, 480 dan 991 yang mustahil, serta kuantitas 0 untuk barang yang
+# dijual per kilogram. Keduanya berasal dari int() atas kuantitas pecahan.
+# ---------------------------------------------------------------------------
+from rantai import jumlah_tampil  # noqa: E402
+
+assert jumlah_tampil(1) == 1
+assert jumlah_tampil(1.0) == 1
+assert jumlah_tampil(2.0) == 2
+# PECAHAN DIPERTAHANKAN. 0,404 kg itu kuantitas yang sah, dan int() membuatnya
+# tampil 0 di aplikasi.
+assert jumlah_tampil(0.404) == 0.404
+assert jumlah_tampil(1.022) == 1.022
+assert jumlah_tampil(2.0964) == 2.096
+# MUSTAHIL DIBUANG, bukan ditebak ulang
+assert jumlah_tampil(404) is None
+assert jumlah_tampil(503) is None
+assert jumlah_tampil(991) is None
+assert jumlah_tampil(100) == 100          # batasnya sendiri masih diterima
+assert jumlah_tampil(100.5) is None
+assert jumlah_tampil(0) is None
+assert jumlah_tampil(-1) is None
+assert jumlah_tampil(None) is None
+assert jumlah_tampil("2") is None
+assert jumlah_tampil(True) is None        # bool bukan kuantitas
+
+print("23. kuantitas tampil: lolos")
 
 print("semua uji lolos")

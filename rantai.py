@@ -473,6 +473,37 @@ def ke_json(kot, lebar, tinggi):
 # di repo aplikasi. Hanya mengganti nama medan dan menyusun ulang, tidak ada
 # nilai yang dihitung ulang, sehingga tidak mempengaruhi angka ketepatan.
 # ---------------------------------------------------------------------------
+# Kuantitas di atas ini tidak pernah ada di struk ritel. Batasnya longgar
+# dengan sengaja: yang dibuang hanya angka yang jelas mustahil.
+JUMLAH_MAKS = 100
+
+
+def jumlah_tampil(jml):
+    """Kuantitas untuk aplikasi. Pecahan DIPERTAHANKAN, yang mustahil dibuang.
+
+    Dua kerusakan nyata yang ditangani, keduanya terlihat pada struk ST Rosyam
+    Mart di layar aplikasi:
+
+      int(0.404) jadi 0   Struk Malaysia menjual sayur per kilogram, sehingga
+                          0,404 kg itu kuantitas yang SAH. Memangkasnya ke
+                          bilangan bulat membuat aplikasi menampilkan 0.
+      404                 OCR memecah "3.29*0.404" sehingga "404" tertangkap
+                          sebagai kuantitas. Kuantitas 404, 503, dan 991 tidak
+                          pernah ada di struk ritel.
+
+    Yang mustahil dikembalikan None, bukan ditebak ulang, supaya pengguna
+    melihat kolom kosong lalu mengisinya sendiri. Sama dengan alasan
+    _buang_harga_mustahil: angka salah yang percaya diri lebih berbahaya
+    daripada angka yang hilang.
+    """
+    if not isinstance(jml, (int, float)) or isinstance(jml, bool):
+        return None
+    j = float(jml)
+    if j <= 0 or j > JUMLAH_MAKS:
+        return None
+    return int(j) if j.is_integer() else round(j, 3)
+
+
 EKSTENSI_GAMBAR = {"jpeg": ".jpg", "png": ".png", "webp": ".webp",
                    "bmp": ".bmp", "tiff": ".tif"}
 
@@ -547,11 +578,10 @@ def ke_kontrak_aplikasi(hasil, kot, id_struk, versi_model):
 
     item = []
     for n, it in enumerate(hasil["item"], start=1):
-        jml = it["jumlah"]
         item.append({
             "id": f"i{n}",
             "nama": it["nama"] or "",
-            "jumlah": int(jml) if jml is not None else None,
+            "jumlah": jumlah_tampil(it["jumlah"]),
             "hargaSatuan": it["harga_satuan"],
             "harga": it["harga"],
             "keyakinan": it["yakin"],

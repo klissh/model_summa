@@ -36,6 +36,16 @@ diri bukan bukti.
 MEDAN_ATAS = ("toko", "tanggal", "jam")
 MEDAN_UANG = ("subtotal", "pajak", "total", "tunai", "kembalian")
 
+# Satu struk dibayar dengan SATU cara. Kalau kartu atau dompet digital sudah
+# berisi, `tunai` yang kosong itu benar kosong, bukan medan yang terlewat.
+#
+# Terlihat pada struk ST Rosyam Mart di layar aplikasi: model mengenali
+# AMBANK TNGWALLET sebagai emoney 61,20, lalu gerbang tetap menanyakan tunai,
+# lalu VLM membaca baris yang sama dan menjawab 61,20. Akibatnya aplikasi
+# menampilkan pembayaran 61,20 DUA KALI, yaitu tunai dan dompet digital
+# sekaligus, untuk belanja yang totalnya 61,20.
+_PEMBAYARAN_LAIN = {"tunai": ("kartu", "emoney")}
+
 # Pita zona sebagai bagian dari TINGGI CITRA, bukan dari rentang tegak kotak
 # yang ditemukan. Bedanya menentukan: kalau pengenal hanya menemukan teks di
 # kepala struk, rentang kotaknya pun hanya kepala, sehingga zona bawah ikut
@@ -140,6 +150,9 @@ def perlu_tambal(kontrak, kotak, tinggi):
     keluar = []
     for medan in MEDAN_ATAS + MEDAN_UANG:
         if not _kosong(_nilai(kontrak, medan)):
+            continue
+        if any(not _kosong(_nilai(kontrak, lain))
+               for lain in _PEMBAYARAN_LAIN.get(medan, ())):
             continue
         zona = "atas" if medan in MEDAN_ATAS else "bawah"
         if not _cukup_kotak(kotak, tinggi, zona):
