@@ -419,7 +419,7 @@ _h = _buang_harga_mustahil(_it(2.0, None, 99999.0))
 assert _h[2]["nama"] == "B2" and _h[2]["harga"] is None
 
 
-# --- 12. total lewat kata kunci sebaris, dari diagnosis uji3 ---
+# --- 14b. total lewat kata kunci sebaris, dari diagnosis uji3 ---
 # Model hanya melabeli total.total_price pada 3 dari 11 struk uji3. Kata TOTAL
 # juga muncul di baris yang BUKAN jumlah akhir, jadi yang diuji di sini adalah
 # pembatal dan pengambilan baris paling bawah.
@@ -451,7 +451,7 @@ _h = _kjl(_baris_uang("Total Sales Exclusive SST", "10.19", 10)
           + _baris_uang("Total Sales inclusive of SST", "10.80", 40), 500, 200)
 assert (_h["total"] or {}).get("nilai") == 10.80, _h["total"]
 
-# --- 13. jumlah nol itu mustahil, dari diagnosis uji3 ---
+# --- 14c. jumlah nol itu mustahil, dari diagnosis uji3 ---
 # Struk 01 memberi jumlah 0 pada dua barang, terambil dari kolom diskon 0.00.
 _brs = [kotak("Perkedel", 10, 10, 120, 30, label="menu.nm"),
         kotak("0", 200, 10, 220, 30, label="menu.cnt"),
@@ -464,7 +464,7 @@ assert _it1[0]["jumlah"] == 1.0, _it1[0]
 _brs[1] = kotak("2", 200, 10, 220, 30, label="menu.cnt")
 assert ke_json_lengkap(_brs, 500, 50)["item"][0]["jumlah"] == 2.0
 
-# --- 14. harga satuan mustahil dikosongkan, dari diagnosis uji3 ---
+# --- 14d. harga satuan mustahil dikosongkan, dari diagnosis uji3 ---
 from rantai import _buang_harga_mustahil as _bhm  # noqa: E402
 
 
