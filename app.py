@@ -267,6 +267,55 @@ def sehat():
     }
 
 
+# Delapan medan yang dinilai skripsi. Diambil dari gerbang_vlm supaya tidak
+# ada daftar kedua yang bisa menyimpang: kartu dan emoney sengaja di luarnya,
+# sebab angka 43,9 persen diukur sebelum kedua medan itu ada.
+MEDAN_NILAI = gerbang_vlm.MEDAN_ATAS + gerbang_vlm.MEDAN_UANG
+
+
+@app.post("/vlm_saja")
+async def vlm_saja(berkas: UploadFile = File(...),
+                   x_kunci: str = Header(default="")):
+    """Lengan tolok ukur VLM MANDIRI: kedelapan medan ditanyakan langsung ke
+    model bahasa visual, tanpa pengenal karakter, LayoutLMv3, maupun agregasi.
+
+    Ada di peladen karena kunci VLM hanya tersimpan di sini. Jalur /ekstrak
+    sengaja tidak disentuh sedikit pun, sebab ia yang melayani aplikasi.
+
+    shortcut: pemeriksaan masukannya disalin dari /ekstrak alih-alih dijadikan
+    fungsi bersama, supaya jalur produksi tidak berubah; satukan bila endpoint
+    ketiga yang menerima gambar muncul.
+    """
+    if KUNCI and x_kunci != KUNCI:
+        raise HTTPException(status_code=401, detail="kunci salah")
+    isi = await berkas.read()
+    if not isi:
+        raise HTTPException(status_code=400, detail="berkas kosong")
+    if len(isi) > MAKS_BYTE:
+        raise HTTPException(status_code=413, detail=f"maksimal {MAKS_BYTE // 1024 // 1024} MB")
+    try:
+        with Image.open(io.BytesIO(isi)) as im:
+            akhiran = rantai.ekstensi_gambar(im.format)
+    except Exception:
+        raise HTTPException(status_code=400, detail="bukan berkas gambar")
+    if akhiran is None:
+        raise HTTPException(status_code=415, detail="format gambar tidak didukung")
+    if not vlm.aktif():
+        raise HTTPException(status_code=503, detail="VLM mati di peladen")
+
+    _t = time.perf_counter()
+    with Image.open(io.BytesIO(isi)) as _im:
+        jawaban = vlm.tanya(_im, list(MEDAN_NILAI), uang=rantai._uang)
+    return {
+        "jawaban": jawaban,
+        "medan_diminta": list(MEDAN_NILAI),
+        "detik": round(time.perf_counter() - _t, 3),
+        "vlm": vlm.MODEL,
+        "vlm_galat": vlm.galat(),
+        "revisi": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")[:7] or "tidak diketahui",
+    }
+
+
 @app.post("/ekstrak")
 async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
                   x_kunci: str = Header(default="")):

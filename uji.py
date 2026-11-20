@@ -1172,4 +1172,22 @@ assert _angka_bintang(_kk(("5*", 100, 140), ("KG", 145, 170)), _AMB) is None
 
 print("23. kuantitas tampil: lolos")
 
+# ---------------------------------------------------------------------------
+# 24. DAFTAR MEDAN LENGAN VLM MANDIRI
+#
+# Endpoint /vlm_saja hanya sah sebagai pembanding bila ia menanyakan PERSIS
+# delapan medan yang dinilai skripsi. Satu medan lebih atau kurang membuat
+# angkanya tidak sebanding dengan 39 dari 66, dan kesalahan seperti itu tidak
+# menimbulkan galat apa pun saat dijalankan, jadi ia dijaga di sini.
+# ---------------------------------------------------------------------------
+_DELAPAN = ("toko", "tanggal", "jam", "subtotal", "pajak", "total", "tunai",
+            "kembalian")
+assert tuple(_gv.MEDAN_ATAS + _gv.MEDAN_UANG) == _DELAPAN
+# kartu dan emoney WAJIB di luar, sebab angka resmi diukur sebelum keduanya ada
+assert "kartu" not in _DELAPAN and "emoney" not in _DELAPAN
+assert len(set(_DELAPAN)) == 8
+
+print("24. medan lengan VLM mandiri: lolos")
+
+
 print("semua uji lolos")
