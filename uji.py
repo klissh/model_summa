@@ -1190,4 +1190,65 @@ assert len(set(_DELAPAN)) == 8
 print("24. medan lengan VLM mandiri: lolos")
 
 
+# ---------------------------------------------------------------------------
+# 25. LENGAN BARIS BARANG VLM
+#
+# Yang dijaga di sini penguraian senarai JSON beserta penyaringannya, sebab
+# kegagalan di bagian itu menghasilkan daftar kosong TANPA galat apa pun,
+# sehingga angka pembandingnya akan rendah karena bug dan bukan karena
+# modelnya. Tidak ada jaringan di sini: pengirimnya dipalsukan.
+# ---------------------------------------------------------------------------
+os.environ["VLM"] = "hidup"
+os.environ["KUNCI_VLM"] = "kunci-palsu-untuk-uji"
+assert _vlm.aktif() is True
+
+_ITEM_OK = ('[{"nama":"CHN CARROT","jumlah":"0.404","harga":"1.33"},'
+            '{"nama":"INDOMIE","jumlah":null,"harga":"4.50"}]')
+_h = _vlm.tanya_item(_CITRA, uang=float, kirim=_balas(_ITEM_OK))
+assert [x["harga"] for x in _h] == [1.33, 4.50], _h
+assert [x["jumlah"] for x in _h] == [0.404, None], _h
+assert _h[0]["nama"] == "CHN CARROT"
+# perintahnya harus perintah baris barang, bukan perintah delapan medan
+_k = _balas(_ITEM_OK)
+_vlm.tanya_item(_CITRA, uang=float, kirim=_k)
+_teks_perintah = _k.muatan["messages"][0]["content"][0]["text"]
+assert "JSON array" in _teks_perintah
+assert "Do not include subtotal" in _teks_perintah
+# batas token harus lebih besar, kalau tidak jawaban panjang terpotong
+assert _k.muatan["max_tokens"] == _vlm.MAKS_TOKEN_ITEM > _vlm.MAKS_TOKEN
+
+# dibungkus pagar markdown walaupun dilarang: tetap harus terurai
+_h = _vlm.tanya_item(_CITRA, uang=float,
+                     kirim=_balas("```json\n" + _ITEM_OK + "\n```"))
+assert len(_h) == 2, _h
+
+# harga bukan angka DIBUANG jadi None, barisnya tetap ada karena namanya ada
+_h = _vlm.tanya_item(_CITRA, uang=float,
+                     kirim=_balas('[{"nama":"X","harga":"tidak terbaca"}]'))
+assert _h == [{"nama": "X", "jumlah": None, "harga": None}], _h
+# baris tanpa nama DAN tanpa harga dibuang seluruhnya
+_h = _vlm.tanya_item(_CITRA, uang=float,
+                     kirim=_balas('[{"nama":"","harga":null},{"nama":"Y","harga":"2.00"}]'))
+assert _h == [{"nama": "Y", "jumlah": None, "harga": 2.0}], _h
+# bukan senarai, senarai kosong, dan sampah: jatuh ke daftar kosong
+assert _vlm.tanya_item(_CITRA, uang=float, kirim=_balas('{"nama":"X"}')) == []
+assert _vlm.tanya_item(_CITRA, uang=float, kirim=_balas("[]")) == []
+assert _vlm.tanya_item(_CITRA, uang=float, kirim=_balas("maaf tidak bisa")) == []
+assert _vlm.tanya_item(_CITRA, uang=float, kirim=_balas('["bukan objek"]')) == []
+# galat jaringan jatuh ke daftar kosong, bukan melempar
+
+
+def _meledak(muatan):
+    raise OSError("jaringan mati")
+
+
+assert _vlm.tanya_item(_CITRA, uang=float, kirim=_meledak) == []
+# BAWAAN MATI juga berlaku bagi lengan ini
+os.environ.pop("KUNCI_VLM", None)
+assert _vlm.tanya_item(_CITRA, uang=float, kirim=_balas(_ITEM_OK)) == []
+os.environ["KUNCI_VLM"] = "kunci-palsu-untuk-uji"
+
+print("25. lengan baris barang VLM: lolos")
+
+
 print("semua uji lolos")

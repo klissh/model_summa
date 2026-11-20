@@ -273,6 +273,48 @@ def sehat():
 MEDAN_NILAI = gerbang_vlm.MEDAN_ATAS + gerbang_vlm.MEDAN_UANG
 
 
+@app.post("/vlm_item")
+async def vlm_item(berkas: UploadFile = File(...),
+                   x_kunci: str = Header(default="")):
+    """Lengan tolok ukur VLM MANDIRI untuk BARIS BARANG, bukan medan ringkasan.
+
+    Menjawab pertanyaan yang menentukan: apakah model bahasa visual juga
+    mengalahkan LayoutLMv3 pada puluhan baris barang per struk, yaitu tempat
+    dataset beranotasi ini sebenarnya bekerja.
+
+    shortcut: pemeriksaan masukannya disalin dari /ekstrak, sama alasannya
+    dengan /vlm_saja; satukan ketiganya bila ada endpoint keempat.
+    """
+    if KUNCI and x_kunci != KUNCI:
+        raise HTTPException(status_code=401, detail="kunci salah")
+    isi = await berkas.read()
+    if not isi:
+        raise HTTPException(status_code=400, detail="berkas kosong")
+    if len(isi) > MAKS_BYTE:
+        raise HTTPException(status_code=413, detail=f"maksimal {MAKS_BYTE // 1024 // 1024} MB")
+    try:
+        with Image.open(io.BytesIO(isi)) as im:
+            akhiran = rantai.ekstensi_gambar(im.format)
+    except Exception:
+        raise HTTPException(status_code=400, detail="bukan berkas gambar")
+    if akhiran is None:
+        raise HTTPException(status_code=415, detail="format gambar tidak didukung")
+    if not vlm.aktif():
+        raise HTTPException(status_code=503, detail="VLM mati di peladen")
+
+    _t = time.perf_counter()
+    with Image.open(io.BytesIO(isi)) as _im:
+        item = vlm.tanya_item(_im, uang=rantai._uang)
+    return {
+        "item": item,
+        "n_item": len(item),
+        "detik": round(time.perf_counter() - _t, 3),
+        "vlm": vlm.MODEL,
+        "vlm_galat": vlm.galat(),
+        "revisi": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")[:7] or "tidak diketahui",
+    }
+
+
 @app.post("/vlm_saja")
 async def vlm_saja(berkas: UploadFile = File(...),
                    x_kunci: str = Header(default="")):
