@@ -31,6 +31,8 @@ Penjaga ini TIDAK memakai laporan VLM tentang dirinya sendiri, sebab penilaian
 diri bukan bukti.
 """
 
+import re as _re
+
 # Medan teks di kepala struk, dan medan uang di kakinya. Pembagian ini yang
 # menentukan zona mana yang harus berisi kotak OCR.
 MEDAN_ATAS = ("toko", "tanggal", "jam")
@@ -201,58 +203,88 @@ def tambal(kontrak, jawaban, kotak, tinggi):
 
 
 # ---------------------------------------------------------------------------
-# BARIS BARANG. Aturannya berbeda dari medan ringkasan di atas, dan bedanya
-# disengaja.
+# BARIS BARANG. Aturannya SAMA dengan medan ringkasan di atas: hanya mengisi
+# yang kosong, dan tidak pernah menimpa yang sudah ada.
 #
-# Untuk medan ringkasan, penambalan dilakukan PER MEDAN dan tidak pernah
-# menimpa. Untuk baris barang itu tidak bisa, dan sebabnya terukur: lubang
-# harga harus dicocokkan ke jawaban VLM lewat nama barang, sedangkan nama
-# barang milik sistem berasal dari pengenal yang sama yang merusak harganya.
-# Diukur pada 34 lubang di 16 struk beranotasi, hanya 18 lubang atau 52,9
-# persen yang namanya cocok, dan pada foto kamera telepon hanya 7 dari 21.
+# Rancangan serah blok, yang mengganti seluruh daftar baris barang ketika satu
+# baris saja berlubang, pernah dipasang pada commit 28daed2 lalu DITARIK. Ia
+# mencapai 96,3 persen harga benar, tetapi ia membuang 55 harga keluaran model
+# pada 14 dari 16 struk, dan 24 di antaranya sudah benar. Larangan menimpa
+# adalah aturan rancangan proyek ini, bukan sekadar tuning, jadi angka 96,3
+# persen tidak cukup untuk membatalkannya.
 #
-# Tiga rancangan diukur atas 107 harga, tiga lari, pada
-# dataset/uji3/ukur_tambal_item.py:
+# Empat rancangan yang hanya MENGISI diukur atas 107 harga pada 16 struk
+# beranotasi, tiga lari, pada dataset/uji3/ukur_isi_kosong.py:
 #
-#   sistem saja                       35, yaitu 32,7 persen
-#   cocok nama, per lubang            paling banyak 53, yaitu 49,5 persen
-#   sisip sisa, tidak pernah menimpa  rerata 63,3, yaitu 59,2 persen
-#   SERAH BLOK, yang dipasang di sini rerata 103, yaitu 96,3 persen
+#   sistem saja, tanpa VLM             35, yaitu 32,7 persen
+#   D1 sejajar dengan jangkar           35, yaitu 32,7 persen, nol lubang terisi
+#   D0 sejajar tanpa jangkar            36, yaitu 33,6 persen
+#   A COCOK NAMA, yang dipasang di sini 47, yaitu 43,9 persen
 #
-# Tidak ada satu struk pun yang skornya turun di bawah sistem saja, pada
-# ketiga lari, baik pada serah blok maupun pada sisip sisa.
+# Rancangan D menganggap urutan baris sistem sejajar dengan urutan baris VLM
+# bila jumlah barisnya sama, lalu MEMERIKSA keandaian itu memakai baris yang
+# harganya sudah ada. Gagasannya masuk akal dan hasilnya nol: kesejajarannya
+# hanya terbukti pada 2 dari 16 struk, sebab jumlah baris sistem jarang sama
+# dengan jumlah baris VLM. Dicatat di sini supaya tidak diusulkan lagi.
 #
-# Sisip sisa DITOLAK walaupun ia menjaga larangan menimpa: ia menyisipkan
-# harga tanpa bukti nama sama sekali, hanya selisih multihimpunan, sehingga ia
-# memproduksi harga benar pada barang yang keliru. Pada aplikasi yang membagi
-# tagihan, itu memindahkan utang ke penghuni yang salah tanpa ada yang
-# menyadarinya, dan itu justru kesalahan yang paling dihindari rancangan ini.
+# Yang dipasang karena itu A, yaitu lubang diisi hanya bila namanya cocok
+# dengan TEPAT SATU baris pada jawaban VLM. Pencocokan nama adalah buktinya,
+# dan bukti itulah yang membedakannya dari rancangan sisip sisa yang ditolak
+# pada 22 November: sisip sisa memasukkan harga tanpa bukti nama sama sekali,
+# sehingga ia memproduksi harga benar yang menempel pada barang yang keliru.
 #
-# Yang dibayar serah blok, dan ini harus diketahui: ketepatan PASANGAN nama
-# dan harga VLM 74,7 sampai 84,2 persen, diukur pada
-# dataset/uji3/ukur_pasangan.py. Pada satu struk dari sebelas, yaitu
-# struk_asli_0018, seluruh daftar namanya BERGESER satu baris terhadap
-# harganya. Harga benar semua, nama benar semua, pasangannya salah. Pembanding
-# yang adil: ketepatan pasangan sistem mustahil melebihi 32,7 persen, sebab
-# pasangan tidak mungkin benar bila harganya saja sudah salah. Jadi serah blok
-# lebih baik daripada keadaan tanpa penambal pada kedua sumbu sekaligus, dan
-# karena itulah ia dipasang meskipun pergeseran baris itu nyata.
+# Harga yang dibayar A, dinyatakan terbuka: dari 14 lubang yang terisi, 12
+# benar dan 2 SALAH. Nisbahnya 6 banding 1 dan itu menguntungkan, tetapi dua
+# harga salah itu nyata dan pengguna yang harus menangkapnya di layar koreksi.
+#
+# Ambang panjang nama tidak disetel pada himpunan uji. Pemeriksaan kepekaan
+# memberi hasil yang persis sama untuk ambang 5, 6, 7, dan 8, yaitu 47 harga
+# benar dengan 14 isian dan 2 isian salah. Ambang 4 menambah satu isian yang
+# salah, dan ambang 10 kehilangan satu isian yang benar. Jadi nilai 6 berada
+# di tengah dataran, bukan di puncak yang dicari-cari.
+#
+# NAMA BARANG TIDAK PERNAH DIUBAH, hanya harganya yang diisi. Nama keluaran
+# pengenal sering rusak, misalnya "SOCKET OUTLET ? 6. .0000", dan menggantinya
+# dengan nama VLM yang bersih memang menolong pengguna. Tetapi itu menimpa,
+# dan selain itu nilainya kecil: lubang hanya terisi ketika namanya sudah
+# cocok, sehingga nama sistem pada baris itu memang sudah terbaca.
+
+# shortcut: ambang 6 aksara pada pencocokan nama, berlaku bagi nama barang
+# ritel Malaysia yang dicetak kasir. Naikkan kalau terukur ada domain yang
+# nama barangnya lazim lebih pendek dari 6 aksara, misalnya kode SKU.
+MIN_NAMA_ITEM = 6
+
+
+def _samakan_nama(s):
+    """Normalkan nama barang untuk dibandingkan.
+
+    Imbuhan harga satuan dibuang, sebab VLM lazim menuliskannya menempel pada
+    nama, misalnya "CHN CARROT @ 3.5000", sedangkan pengenal memisahkannya.
+    """
+    s = (s or "").upper()
+    s = _re.sub(r"@.*$", "", s)
+    s = _re.sub(r"[^A-Z0-9]+", " ", s)
+    return " ".join(s.split())
+
+
+def cocok_nama_item(a, b, k=MIN_NAMA_ITEM):
+    """Satu nama termuat di dalam yang lain DAN yang terpendek cukup panjang.
+
+    Syarat panjang itu wajib. Tanpa itu nama sependek CHN cocok dengan apa pun
+    yang memuatnya, dan setiap lubang akan terisi oleh baris yang salah.
+    """
+    a, b = _samakan_nama(a), _samakan_nama(b)
+    if not a or not b:
+        return False
+    pendek, panjang = sorted((a, b), key=len)
+    return len(pendek) >= k and pendek in panjang
 
 
 def perlu_tambal_item(kontrak):
-    """True kalau blok baris barang boleh diserahkan ke VLM.
+    """True kalau ada baris barang yang harganya kosong.
 
-    Pemicunya dapat diamati saat jalan dan tidak memakai jawaban benar: ada
-    baris barang, dan sedikitnya satu di antaranya tanpa harga. Itu persis
-    pemicu yang diukur.
-
-    shortcut: struk yang baris barangnya NOL tidak diserahkan, sebab keadaan
-    itu tidak muncul pada keenam belas struk yang diukur sehingga tidak ada
-    bukti apa pun tentangnya. Risikonya pun berbeda jenis, yaitu VLM
-    mengarang barang pada struk yang memang tidak memuat barang, dan bukti
-    bahwa ia dapat melakukannya sudah ada: pada struk_asli_0018 ia menarik
-    baris pembayaran TNGWALLET ke dalam daftar barang. Longgarkan hanya
-    setelah keadaan baris nol itu diukur.
+    Pemicunya dapat diamati saat jalan dan tidak memakai jawaban benar. Nilai
+    0 BUKAN kosong, aturan yang sama dengan _kosong di atas.
     """
     item = kontrak.get("item") or []
     if not item:
@@ -261,41 +293,43 @@ def perlu_tambal_item(kontrak):
 
 
 def tambal_item(kontrak, item_vlm):
-    """Ganti seluruh blok baris barang dengan jawaban VLM.
+    """Isi harga baris barang yang kosong, dan HANYA yang kosong.
 
-    Mengubah `kontrak` di tempat, dan mengembalikan jumlah baris yang
-    tertulis. Nol berarti blok lama dipertahankan.
+    Mengubah `kontrak` di tempat, dan mengembalikan daftar id baris yang
+    terisi. Jumlah baris tidak pernah berubah, nama tidak pernah berubah, dan
+    harga yang sudah ada tidak pernah berubah.
 
-    Daftar kosong ditolak: jawaban kosong adalah kegagalan panggilan atau
-    penguraian, dan menukar blok yang berisi dengan blok kosong membuat
-    aplikasi lebih buruk daripada sebelum penambal ada.
-
-    hargaSatuan tidak diisi, sebab perintah pada vlm.py melarang model
-    menghitung dan harga satuan sering tidak tercetak. Menghitungnya di sini
-    akan memasukkan angka yang tidak pernah ada di struk.
+    Satu lubang diisi hanya bila namanya cocok dengan TEPAT SATU baris pada
+    jawaban VLM. Dua kecocokan berarti rancu, dan yang rancu dibiarkan kosong:
+    medan kosong yang disadari pengguna lebih aman daripada angka salah yang
+    tidak disadarinya, sebagaimana dinyatakan Subbab 4.8.3.
     """
-    if not item_vlm:
-        return 0
-    baru = []
-    for it in item_vlm:
-        nama = (it.get("nama") or "").strip()
-        harga = it.get("harga")
-        if not nama and harga is None:
+    item = kontrak.get("item") or []
+    if not item or not item_vlm:
+        return []
+    calon = [v for v in item_vlm
+             if isinstance(v, dict)
+             and isinstance(v.get("harga"), (int, float))
+             and (v.get("nama") or "").strip()]
+    if not calon:
+        return []
+    terisi = []
+    for baris in item:
+        if baris.get("harga") is not None:
             continue
-        baru.append({
-            "id": "i%d" % (len(baru) + 1),
-            "nama": nama,
-            "jumlah": it.get("jumlah"),
-            "hargaSatuan": None,
-            "harga": harga,
-            "keyakinan": None,
-        })
-    if not baru:
-        return 0
-    kontrak["item"] = baru
-    # Penandanya di akar, mengikuti pola `asalVlm` di atas: antarmuka wajib
-    # dapat memberi tahu pengguna bahwa baris barang ini bukan dari pengenal
-    # huruf, sebab pengguna adalah satu-satunya penjaga terhadap pergeseran
-    # baris yang terukur itu.
-    kontrak["itemAsalVlm"] = True
-    return len(baru)
+        kena = [v for v in calon if cocok_nama_item(baris.get("nama"),
+                                                    v.get("nama"))]
+        if len(kena) != 1:
+            continue
+        baris["harga"] = kena[0]["harga"]
+        baris["asal"] = "vlm"
+        baris["keyakinan"] = None
+        terisi.append(baris.get("id"))
+    # Penandanya juga sebagai daftar di akar, mengikuti pola `asalVlm`:
+    # antarmuka wajib dapat menyorot baris mana saja yang harganya datang dari
+    # model bahasa visual, sebab dua dari 14 isian terukur salah dan pengguna
+    # satu-satunya yang dapat menangkapnya.
+    if terisi:
+        kontrak["itemAsalVlm"] = sorted(
+            set(kontrak.get("itemAsalVlm") or []) | set(terisi))
+    return terisi

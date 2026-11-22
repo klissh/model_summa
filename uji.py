@@ -1257,82 +1257,119 @@ print("25. lengan baris barang VLM: lolos")
 
 
 # ---------------------------------------------------------------------------
-# 26. GERBANG BARIS BARANG, RANCANGAN SERAH BLOK
+# 26. GERBANG BARIS BARANG, HANYA MENGISI YANG KOSONG
 #
-# Rancangan ini MENIMPA blok baris barang, satu-satunya tempat di seluruh
-# penambal yang diizinkan menimpa, jadi pemicunya harus dipaku. Dua kekeliruan
-# yang dijaga di sini, keduanya tidak menimbulkan galat apa pun saat
-# dijalankan:
+# Larangan menimpa adalah aturan rancangan proyek ini, dan bagian ini yang
+# menegakkannya pada baris barang. Rancangan serah blok pernah dipasang pada
+# commit 28daed2 lalu ditarik: ia membuang 24 harga yang sudah benar.
 #
-#   1. Blok yang sudah lengkap tetap diserahkan ke VLM. Itu menukar keluaran
-#      model yang benar dengan kemungkinan, yaitu persis kesalahan yang
-#      membuat gerbang lima kondisi ditolak pada 20 November.
-#   2. Blok berisi ditukar dengan blok KOSONG ketika panggilan VLM gagal.
-#      Aplikasi jadi lebih buruk daripada sebelum penambal ada.
+# Empat kekeliruan yang dijaga di sini, dan tidak satu pun menimbulkan galat
+# saat dijalankan sehingga semuanya akan lolos tanpa uji ini:
+#
+#   1. Harga yang sudah ada tertimpa jawaban model bahasa visual.
+#   2. Nama barang tertimpa, padahal hanya harganya yang boleh diisi.
+#   3. Jumlah baris berubah, yaitu blok lama tergantikan.
+#   4. Lubang yang namanya cocok dengan DUA baris tetap diisi. Yang rancu
+#      harus dibiarkan kosong, sebab mengisinya berarti menebak.
 # ---------------------------------------------------------------------------
-def _kon(*harga):
-    return {"item": [{"id": "i%d" % (n + 1), "nama": "B%d" % (n + 1),
-                      "jumlah": 1.0, "hargaSatuan": None, "harga": h,
-                      "keyakinan": 0.9}
-                     for n, h in enumerate(harga)]}
+def _it(*pasang):
+    """Blok baris barang bergaya kontrak aplikasi: (nama, harga) per baris."""
+    return {"item": [{"id": "i%d" % (n + 1), "nama": nm, "jumlah": 1.0,
+                      "hargaSatuan": None, "harga": h, "keyakinan": 0.9}
+                     for n, (nm, h) in enumerate(pasang)]}
 
 
-# tanpa baris barang sama sekali: TIDAK diserahkan, sebab keadaan itu tidak
-# pernah diukur dan VLM terbukti dapat menarik baris pembayaran jadi barang
+def _v(*pasang):
+    return [{"nama": nm, "jumlah": None, "harga": h} for nm, h in pasang]
+
+
+# --- pemicunya ---
 assert _gv.perlu_tambal_item({"item": []}) is False
 assert _gv.perlu_tambal_item({}) is False
-# seluruh baris sudah berharga: tidak diserahkan
-assert _gv.perlu_tambal_item(_kon(1.5, 2.5)) is False
+assert _gv.perlu_tambal_item(_it(("INDOMIE GORENG", 1.5))) is False
 # harga 0 BUKAN kosong, aturan yang sama dengan medan ringkasan
-assert _gv.perlu_tambal_item(_kon(0, 2.5)) is False
-# satu baris tanpa harga sudah cukup
-assert _gv.perlu_tambal_item(_kon(1.5, None)) is True
-assert _gv.perlu_tambal_item(_kon(None)) is True
+assert _gv.perlu_tambal_item(_it(("INDOMIE GORENG", 0))) is False
+assert _gv.perlu_tambal_item(_it(("INDOMIE GORENG", None))) is True
+assert _gv.perlu_tambal_item(_it(("A", 1.5), ("INDOMIE GORENG", None))) is True
 
-# penambalan mengganti SELURUH blok, bukan baris yang kosong saja
-_k = _kon(1.5, None)
-assert _gv.tambal_item(_k, [{"nama": "P", "jumlah": 2.0, "harga": 3.0},
-                            {"nama": "Q", "jumlah": None, "harga": 4.0},
-                            {"nama": "R", "jumlah": None, "harga": None}]) == 3
-assert [x["nama"] for x in _k["item"]] == ["P", "Q", "R"]
-assert [x["id"] for x in _k["item"]] == ["i1", "i2", "i3"]
-assert [x["harga"] for x in _k["item"]] == [3.0, 4.0, None]
-assert [x["jumlah"] for x in _k["item"]] == [2.0, None, None]
-# harga satuan TIDAK dihitung, sebab perintahnya melarang model menghitung
-assert all(x["hargaSatuan"] is None for x in _k["item"])
-# keyakinan dikosongkan: angka keyakinan model tidak berlaku bagi keluaran VLM
-assert all(x["keyakinan"] is None for x in _k["item"])
-assert _k["itemAsalVlm"] is True
+# --- pencocokan namanya ---
+# imbuhan harga satuan yang ditempelkan VLM dibuang lebih dahulu
+assert _gv.cocok_nama_item("CHN CARROT (KG)", "CHN CARROT @ 3.5000")
+assert _gv.cocok_nama_item("kopi susu", "KOPI SUSU BESAR")
+# nama pendek TIDAK boleh cocok, kalau tidak setiap lubang terisi keliru
+assert not _gv.cocok_nama_item("CHN", "CHN CARROT (KG)")
+assert not _gv.cocok_nama_item("", "APA SAJA")
+assert not _gv.cocok_nama_item("ROTI", "ROTI MANIS")
+# ambangnya dapat disetel, dan nilai bawaannya 6
+assert _gv.MIN_NAMA_ITEM == 6
+assert _gv.cocok_nama_item("ROTI", "ROTI MANIS", 4)
 
-# jawaban kosong TIDAK PERNAH menukar blok yang berisi
-for _kosong in ([], None):
-    _k = _kon(1.5, None)
-    assert _gv.tambal_item(_k, _kosong) == 0
-    assert [x["nama"] for x in _k["item"]] == ["B1", "B2"]
-    assert "itemAsalVlm" not in _k
-# jawaban yang seluruh barisnya sampah sama dengan jawaban kosong
-_k = _kon(1.5, None)
-assert _gv.tambal_item(_k, [{"nama": "", "harga": None},
-                            {"nama": "   ", "harga": None}]) == 0
-assert [x["nama"] for x in _k["item"]] == ["B1", "B2"]
-assert "itemAsalVlm" not in _k
-# baris sampah di tengah dibuang, penomorannya tetap rapat
-_k = _kon(None)
-assert _gv.tambal_item(_k, [{"nama": "P", "harga": 1.0},
-                            {"nama": "", "harga": None},
-                            {"nama": "Q", "harga": 2.0}]) == 2
+# --- pengisian yang benar ---
+_k = _it(("INDOMIE GORENG", None), ("CHN CARROT (KG)", 2.5))
+_t = _gv.tambal_item(_k, _v(("INDOMIE GORENG 85G", 4.6),
+                            ("CHN CARROT @ 3.5000", 9.99)))
+assert _t == ["i1"], _t
+assert _k["item"][0]["harga"] == 4.6
+assert _k["item"][0]["asal"] == "vlm"
+assert _k["item"][0]["keyakinan"] is None
+assert _k["itemAsalVlm"] == ["i1"]
+# BARIS KEDUA TIDAK DISENTUH walaupun jawabannya memuat harga lain
+assert _k["item"][1]["harga"] == 2.5, _k["item"][1]
+assert "asal" not in _k["item"][1]
+assert _k["item"][1]["keyakinan"] == 0.9
+# nama tidak pernah berubah, hanya harganya yang diisi
+assert _k["item"][0]["nama"] == "INDOMIE GORENG"
+assert _k["item"][1]["nama"] == "CHN CARROT (KG)"
+# jumlah baris tidak pernah berubah
+assert len(_k["item"]) == 2
 assert [x["id"] for x in _k["item"]] == ["i1", "i2"]
-assert [x["nama"] for x in _k["item"]] == ["P", "Q"]
 
-# gerbang baris barang TIDAK ikut campur ke delapan medan ringkasan, dan
-# sebaliknya: keduanya harus dapat berjalan sendiri-sendiri
-_k = {"item": [{"id": "i1", "nama": "B1", "harga": None}],
-      "toko": "ADA", "ringkasan": {}}
-assert _gv.tambal_item(_k, [{"nama": "P", "harga": 1.0}]) == 1
+# --- yang rancu dibiarkan kosong ---
+_k = _it(("KOPI SUSU", None))
+assert _gv.tambal_item(_k, _v(("KOPI SUSU BESAR", 3.0),
+                              ("KOPI SUSU KECIL", 2.0))) == []
+assert _k["item"][0]["harga"] is None
+assert "itemAsalVlm" not in _k
+# nama yang tidak dikenali juga dibiarkan kosong
+_k = _it(("BARANG ANEH SEKALI", None))
+assert _gv.tambal_item(_k, _v(("INDOMIE GORENG", 4.6))) == []
+assert _k["item"][0]["harga"] is None
+
+# --- jawaban yang tidak dapat dipakai ---
+for _kosong in ([], None):
+    _k = _it(("INDOMIE GORENG", None))
+    assert _gv.tambal_item(_k, _kosong) == []
+    assert _k["item"][0]["harga"] is None
+# baris VLM tanpa harga tidak dapat mengisi apa pun
+_k = _it(("INDOMIE GORENG", None))
+assert _gv.tambal_item(_k, _v(("INDOMIE GORENG 85G", None))) == []
+# baris VLM tanpa nama tidak dipakai, sebab namanya yang menjadi buktinya
+_k = _it(("INDOMIE GORENG", None))
+assert _gv.tambal_item(_k, _v(("", 4.6))) == []
+# bukan objek: diabaikan tanpa melempar
+_k = _it(("INDOMIE GORENG", None))
+assert _gv.tambal_item(_k, ["bukan objek", 7]) == []
+# kontrak tanpa baris barang: tidak ada yang dapat diisi
+assert _gv.tambal_item({"item": []}, _v(("A B C D E F", 1.0))) == []
+assert _gv.tambal_item({}, _v(("A B C D E F", 1.0))) == []
+
+# --- dua lubang sekaligus, dan penandanya terkumpul ---
+_k = _it(("INDOMIE GORENG", None), ("CHN CARROT (KG)", None))
+_t = _gv.tambal_item(_k, _v(("INDOMIE GORENG 85G", 4.6),
+                            ("CHN CARROT @ 3.5000", 3.43)))
+assert _t == ["i1", "i2"], _t
+assert [x["harga"] for x in _k["item"]] == [4.6, 3.43]
+assert _k["itemAsalVlm"] == ["i1", "i2"]
+
+# --- gerbang baris barang TIDAK ikut campur ke medan ringkasan ---
+_k = _it(("INDOMIE GORENG", None))
+_k["toko"] = "ADA"
+_k["ringkasan"] = {}
+assert _gv.tambal_item(_k, _v(("INDOMIE GORENG 85G", 4.6))) == ["i1"]
 assert _k["toko"] == "ADA"
 assert "asalVlm" not in _k
 
-print("26. gerbang baris barang serah blok: lolos")
+print("26. gerbang baris barang hanya mengisi: lolos")
 
 
 # ---------------------------------------------------------------------------

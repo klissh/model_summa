@@ -303,11 +303,11 @@ async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
     id_struk = uuid.uuid4().hex[:12]
     aplikasi = rantai.ke_kontrak_aplikasi(hasil, kot, id_struk, MODEL_ID)
     minta = gerbang_vlm.perlu_tambal(aplikasi, kot, tinggi)
-    # Dihitung SEBELUM penambalan apa pun, sebab tambal_item mengganti blok
-    # baris barang yang justru menjadi dasar pemicunya.
+    # Dihitung SEBELUM penambalan apa pun, sebab tambal_item mengisi lubang
+    # harga yang justru menjadi dasar pemicunya.
     minta_item = gerbang_vlm.perlu_tambal_item(aplikasi)
     tertulis = []
-    item_vlm = 0
+    item_vlm = []
     if (minta or minta_item) and vlm.aktif():
         _t = time.perf_counter()
         # Citra ASLI yang dikirim, bukan gambar jalur penyelamat yang sudah
@@ -336,8 +336,9 @@ async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
         # karena OCR, bukan karena struknya memang tidak memuatnya.
         "gerbang_vlm": minta,
         "vlm_tertulis": tertulis,
-        # Apakah blok baris barang diserahkan ke VLM, dan berapa baris yang
-        # ditulisnya. Nol berarti blok dari model yang dipertahankan.
+        # Apakah ada baris barang yang harganya kosong, dan id baris mana saja
+        # yang harganya akhirnya diisi model bahasa visual. Daftar kosong
+        # berarti tidak ada lubang yang namanya dapat dicocokkan.
         "gerbang_vlm_item": minta_item,
         "vlm_item_tertulis": item_vlm,
         "mentah": hasil,
