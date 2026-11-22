@@ -1335,4 +1335,73 @@ assert "asalVlm" not in _k
 print("26. gerbang baris barang serah blok: lolos")
 
 
+# ---------------------------------------------------------------------------
+# 27. APA YANG KELUAR KE PIHAK KETIGA, UNTUK NFR2
+#
+# Bagian ini menjaga satu janji privasi yang dapat hilang TANPA SUARA. Citra
+# yang dikirim ke penyedia model bahasa visual dibangun ulang sebagai JPEG
+# oleh PIL, dan PIL membuang EXIF kecuali diminta mempertahankannya. Jadi
+# penanda kamera, waktu, dan koordinat GPS tidak ikut terkirim. Cukup satu
+# orang menambahkan exif=... pada panggilan save, dan koordinat GPS struk
+# orang lain mulai mengalir ke pihak ketiga tanpa satu pun galat.
+#
+# Yang dijaga di sini juga muatannya: tidak ada identitas pengguna, nomor
+# struk, nama berkas, maupun teks hasil pengenalan yang keluar. Hanya nama
+# model, perintah, dan citranya.
+# ---------------------------------------------------------------------------
+os.environ["VLM"] = "hidup"
+os.environ["KUNCI_VLM"] = "kunci-palsu-untuk-uji"
+
+import base64 as _b64  # noqa: E402
+import io  # noqa: E402
+
+_ex = _Img.Exif()
+_ex[271] = "ACME"                       # Make
+_ex[272] = "Telepon Uji"                # Model
+_ex[306] = "2026:11:22 11:50:00"        # DateTime
+_ex[37510] = "catatan pribadi"          # UserComment
+_buf = io.BytesIO()
+_Img.new("RGB", (2400, 1000), (250, 250, 250)).save(_buf, format="JPEG",
+                                                    exif=_ex)
+_masuk = _Img.open(io.BytesIO(_buf.getvalue()))
+assert len(_masuk.getexif()) == 4, len(_masuk.getexif())
+
+_bita = _b64.b64decode(_vlm._citra_base64(_masuk))
+_keluar = _Img.open(io.BytesIO(_bita))
+# seluruh EXIF hilang, termasuk penanda kamera dan waktu
+assert len(_keluar.getexif()) == 0, len(_keluar.getexif())
+assert _keluar.getexif().get(271) is None
+assert _keluar.getexif().get(306) is None
+# bukan hanya tak terbaca PIL: teksnya memang tidak ada di dalam bitanya
+assert b"ACME" not in _bita
+assert b"catatan pribadi" not in _bita
+assert b"Telepon Uji" not in _bita
+# sisi terpanjang diperkecil ke SISI_MAKS, jadi yang keluar bukan citra penuh
+assert max(_keluar.size) == _vlm.SISI_MAKS, _keluar.size
+
+# muatan yang keluar TIDAK memuat apa pun selain model, perintah, dan citra
+_k = _balas('{"toko":"A"}')
+_vlm.tanya(_CITRA, [{"medan": "toko", "zona": "atas", "pita": (0.0, 0.45)}],
+           kirim=_k)
+assert sorted(_k.muatan) == ["max_tokens", "messages", "model", "temperature"], \
+    sorted(_k.muatan)
+assert len(_k.muatan["messages"]) == 1
+_jenis = [c["type"] for c in _k.muatan["messages"][0]["content"]]
+assert _jenis == ["text", "image_url"], _jenis
+# citranya JPEG sebaris, bukan URL yang dapat diambil pihak lain
+assert _k.muatan["messages"][0]["content"][1]["image_url"]["url"].startswith(
+    "data:image/jpeg;base64,")
+# perintahnya tidak memuat teks hasil pengenalan maupun koordinat kotak
+_p = _k.muatan["messages"][0]["content"][0]["text"]
+assert "bbox" not in _p and "koordinat" not in _p
+
+for _n, _v in zip(("VLM", "KUNCI_VLM"), _simpan_vlm):
+    if _v is None:
+        os.environ.pop(_n, None)
+    else:
+        os.environ[_n] = _v
+
+print("27. yang keluar ke pihak ketiga: lolos")
+
+
 print("semua uji lolos")
