@@ -303,15 +303,26 @@ async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
     id_struk = uuid.uuid4().hex[:12]
     aplikasi = rantai.ke_kontrak_aplikasi(hasil, kot, id_struk, MODEL_ID)
     minta = gerbang_vlm.perlu_tambal(aplikasi, kot, tinggi)
+    # Dihitung SEBELUM penambalan apa pun, sebab tambal_item mengganti blok
+    # baris barang yang justru menjadi dasar pemicunya.
+    minta_item = gerbang_vlm.perlu_tambal_item(aplikasi)
     tertulis = []
-    if minta and vlm.aktif():
+    item_vlm = 0
+    if (minta or minta_item) and vlm.aktif():
         _t = time.perf_counter()
         # Citra ASLI yang dikirim, bukan gambar jalur penyelamat yang sudah
         # diputar: VLM menangani kemiringan lebih baik daripada rantai ini.
         # Berkas sementaranya sudah dihapus, jadi dipakai `isi` yang masih ada.
         with Image.open(io.BytesIO(isi)) as _im:
-            jawaban = vlm.tanya(_im, minta, uang=rantai._uang)
-        tertulis = gerbang_vlm.tambal(aplikasi, jawaban, kot, tinggi)
+            if minta:
+                jawaban = vlm.tanya(_im, minta, uang=rantai._uang)
+                tertulis = gerbang_vlm.tambal(aplikasi, jawaban, kot, tinggi)
+            # Panggilan KEDUA, bukan gabungan: perintah baris barang menuntut
+            # senarai panjang dengan aturannya sendiri, dan menggabungkannya
+            # dengan perintah medan ringkasan akan menurunkan keduanya.
+            if minta_item:
+                item_vlm = gerbang_vlm.tambal_item(
+                    aplikasi, vlm.tanya_item(_im, uang=rantai._uang))
         # Masuk ke `total` juga, sebab `total` dipakai mengukur latensi
         # peladen dan panggilan VLM itu waktu peladen yang sungguhan.
         waktu["9_vlm"] = time.perf_counter() - _t
@@ -325,6 +336,10 @@ async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
         # karena OCR, bukan karena struknya memang tidak memuatnya.
         "gerbang_vlm": minta,
         "vlm_tertulis": tertulis,
+        # Apakah blok baris barang diserahkan ke VLM, dan berapa baris yang
+        # ditulisnya. Nol berarti blok dari model yang dipertahankan.
+        "gerbang_vlm_item": minta_item,
+        "vlm_item_tertulis": item_vlm,
         "mentah": hasil,
         "waktu": {k: round(v, 3) if isinstance(v, float) else v for k, v in waktu.items()},
     }

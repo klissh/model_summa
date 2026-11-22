@@ -1190,4 +1190,149 @@ assert len(set(_DELAPAN)) == 8
 print("24. delapan medan dasar angka: lolos")
 
 
+# ---------------------------------------------------------------------------
+# 25. LENGAN BARIS BARANG VLM
+#
+# Yang dijaga di sini penguraian senarai JSON beserta penyaringannya, sebab
+# kegagalan di bagian itu menghasilkan daftar kosong TANPA galat apa pun,
+# sehingga baris barang hilang dari aplikasi dan tidak ada yang tahu
+# sebabnya. Tidak ada jaringan di sini: pengirimnya dipalsukan.
+# ---------------------------------------------------------------------------
+os.environ["VLM"] = "hidup"
+os.environ["KUNCI_VLM"] = "kunci-palsu-untuk-uji"
+assert _vlm.aktif() is True
+
+_ITEM_OK = ('[{"nama":"CHN CARROT","jumlah":"0.404","harga":"1.33"},'
+            '{"nama":"INDOMIE","jumlah":null,"harga":"4.50"}]')
+_h = _vlm.tanya_item(_CITRA, uang=float, kirim=_balas(_ITEM_OK))
+assert [x["harga"] for x in _h] == [1.33, 4.50], _h
+assert [x["jumlah"] for x in _h] == [0.404, None], _h
+assert _h[0]["nama"] == "CHN CARROT"
+# perintahnya harus perintah baris barang, bukan perintah delapan medan
+_k = _balas(_ITEM_OK)
+_vlm.tanya_item(_CITRA, uang=float, kirim=_k)
+_teks_perintah = _k.muatan["messages"][0]["content"][0]["text"]
+assert "JSON array" in _teks_perintah
+assert "Do not include subtotal" in _teks_perintah
+# batas token harus lebih besar, kalau tidak jawaban panjang terpotong
+assert _k.muatan["max_tokens"] == _vlm.MAKS_TOKEN_ITEM > _vlm.MAKS_TOKEN
+
+# dibungkus pagar markdown walaupun dilarang: tetap harus terurai
+_h = _vlm.tanya_item(_CITRA, uang=float,
+                     kirim=_balas("```json\n" + _ITEM_OK + "\n```"))
+assert len(_h) == 2, _h
+
+# harga bukan angka DIBUANG jadi None, barisnya tetap ada karena namanya ada
+_h = _vlm.tanya_item(_CITRA, uang=float,
+                     kirim=_balas('[{"nama":"X","harga":"tidak terbaca"}]'))
+assert _h == [{"nama": "X", "jumlah": None, "harga": None}], _h
+# baris tanpa nama DAN tanpa harga dibuang seluruhnya
+_h = _vlm.tanya_item(
+    _CITRA, uang=float,
+    kirim=_balas('[{"nama":"","harga":null},{"nama":"Y","harga":"2.00"}]'))
+assert _h == [{"nama": "Y", "jumlah": None, "harga": 2.0}], _h
+# bukan senarai, senarai kosong, dan sampah: jatuh ke daftar kosong
+assert _vlm.tanya_item(_CITRA, uang=float, kirim=_balas('{"nama":"X"}')) == []
+assert _vlm.tanya_item(_CITRA, uang=float, kirim=_balas("[]")) == []
+assert _vlm.tanya_item(_CITRA, uang=float, kirim=_balas("maaf tidak bisa")) == []
+assert _vlm.tanya_item(_CITRA, uang=float, kirim=_balas('["bukan objek"]')) == []
+
+
+def _meledak(muatan):
+    raise OSError("jaringan mati")
+
+
+# galat jaringan jatuh ke daftar kosong, bukan melempar
+assert _vlm.tanya_item(_CITRA, uang=float, kirim=_meledak) == []
+# BAWAAN MATI juga berlaku bagi lengan ini
+os.environ.pop("KUNCI_VLM", None)
+assert _vlm.tanya_item(_CITRA, uang=float, kirim=_balas(_ITEM_OK)) == []
+for _n, _v in zip(("VLM", "KUNCI_VLM"), _simpan_vlm):
+    if _v is None:
+        os.environ.pop(_n, None)
+    else:
+        os.environ[_n] = _v
+
+print("25. lengan baris barang VLM: lolos")
+
+
+# ---------------------------------------------------------------------------
+# 26. GERBANG BARIS BARANG, RANCANGAN SERAH BLOK
+#
+# Rancangan ini MENIMPA blok baris barang, satu-satunya tempat di seluruh
+# penambal yang diizinkan menimpa, jadi pemicunya harus dipaku. Dua kekeliruan
+# yang dijaga di sini, keduanya tidak menimbulkan galat apa pun saat
+# dijalankan:
+#
+#   1. Blok yang sudah lengkap tetap diserahkan ke VLM. Itu menukar keluaran
+#      model yang benar dengan kemungkinan, yaitu persis kesalahan yang
+#      membuat gerbang lima kondisi ditolak pada 20 November.
+#   2. Blok berisi ditukar dengan blok KOSONG ketika panggilan VLM gagal.
+#      Aplikasi jadi lebih buruk daripada sebelum penambal ada.
+# ---------------------------------------------------------------------------
+def _kon(*harga):
+    return {"item": [{"id": "i%d" % (n + 1), "nama": "B%d" % (n + 1),
+                      "jumlah": 1.0, "hargaSatuan": None, "harga": h,
+                      "keyakinan": 0.9}
+                     for n, h in enumerate(harga)]}
+
+
+# tanpa baris barang sama sekali: TIDAK diserahkan, sebab keadaan itu tidak
+# pernah diukur dan VLM terbukti dapat menarik baris pembayaran jadi barang
+assert _gv.perlu_tambal_item({"item": []}) is False
+assert _gv.perlu_tambal_item({}) is False
+# seluruh baris sudah berharga: tidak diserahkan
+assert _gv.perlu_tambal_item(_kon(1.5, 2.5)) is False
+# harga 0 BUKAN kosong, aturan yang sama dengan medan ringkasan
+assert _gv.perlu_tambal_item(_kon(0, 2.5)) is False
+# satu baris tanpa harga sudah cukup
+assert _gv.perlu_tambal_item(_kon(1.5, None)) is True
+assert _gv.perlu_tambal_item(_kon(None)) is True
+
+# penambalan mengganti SELURUH blok, bukan baris yang kosong saja
+_k = _kon(1.5, None)
+assert _gv.tambal_item(_k, [{"nama": "P", "jumlah": 2.0, "harga": 3.0},
+                            {"nama": "Q", "jumlah": None, "harga": 4.0},
+                            {"nama": "R", "jumlah": None, "harga": None}]) == 3
+assert [x["nama"] for x in _k["item"]] == ["P", "Q", "R"]
+assert [x["id"] for x in _k["item"]] == ["i1", "i2", "i3"]
+assert [x["harga"] for x in _k["item"]] == [3.0, 4.0, None]
+assert [x["jumlah"] for x in _k["item"]] == [2.0, None, None]
+# harga satuan TIDAK dihitung, sebab perintahnya melarang model menghitung
+assert all(x["hargaSatuan"] is None for x in _k["item"])
+# keyakinan dikosongkan: angka keyakinan model tidak berlaku bagi keluaran VLM
+assert all(x["keyakinan"] is None for x in _k["item"])
+assert _k["itemAsalVlm"] is True
+
+# jawaban kosong TIDAK PERNAH menukar blok yang berisi
+for _kosong in ([], None):
+    _k = _kon(1.5, None)
+    assert _gv.tambal_item(_k, _kosong) == 0
+    assert [x["nama"] for x in _k["item"]] == ["B1", "B2"]
+    assert "itemAsalVlm" not in _k
+# jawaban yang seluruh barisnya sampah sama dengan jawaban kosong
+_k = _kon(1.5, None)
+assert _gv.tambal_item(_k, [{"nama": "", "harga": None},
+                            {"nama": "   ", "harga": None}]) == 0
+assert [x["nama"] for x in _k["item"]] == ["B1", "B2"]
+assert "itemAsalVlm" not in _k
+# baris sampah di tengah dibuang, penomorannya tetap rapat
+_k = _kon(None)
+assert _gv.tambal_item(_k, [{"nama": "P", "harga": 1.0},
+                            {"nama": "", "harga": None},
+                            {"nama": "Q", "harga": 2.0}]) == 2
+assert [x["id"] for x in _k["item"]] == ["i1", "i2"]
+assert [x["nama"] for x in _k["item"]] == ["P", "Q"]
+
+# gerbang baris barang TIDAK ikut campur ke delapan medan ringkasan, dan
+# sebaliknya: keduanya harus dapat berjalan sendiri-sendiri
+_k = {"item": [{"id": "i1", "nama": "B1", "harga": None}],
+      "toko": "ADA", "ringkasan": {}}
+assert _gv.tambal_item(_k, [{"nama": "P", "harga": 1.0}]) == 1
+assert _k["toko"] == "ADA"
+assert "asalVlm" not in _k
+
+print("26. gerbang baris barang serah blok: lolos")
+
+
 print("semua uji lolos")
