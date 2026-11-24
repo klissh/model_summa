@@ -17,9 +17,10 @@ easyocr==1.7.2
 # sekitar 120 MB, jauh di bawah torch. Lihat README bagian Pengenal huruf.
 rapidocr_onnxruntime==1.4.4
 
-# Pustaka server. Versinya tidak mempengaruhi keluaran model.
-fastapi
-uvicorn[standard]
-python-multipart
-pillow
-psutil
+# Pustaka server. Dipaku pada versi stabil supaya deploy ulang menjelang
+# pameran atau sidang tidak pernah menarik rilis major yang mematahkan API.
+fastapi==0.115.12
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pillow==11.1.0
+psutil==7.0.0

@@ -1441,4 +1441,24 @@ for _n, _v in zip(("VLM", "KUNCI_VLM"), _simpan_vlm):
 print("27. yang keluar ke pihak ketiga: lolos")
 
 
+# --- 27b. orientasi EXIF dan pagar keamanan app.py ---
+import ast as _ast
+from PIL import ImageOps as _ImageOps
+
+with open("app.py", "r", encoding="utf-8") as _f_app:
+    _kode_app = _f_app.read()
+_ast.parse(_kode_app)
+assert "Image.MAX_IMAGE_PIXELS = 25_000_000" in _kode_app
+assert "_ANTREAN_MAKS = 3" in _kode_app
+assert "_SEMAPHORE_KONKURENSI.release()" in _kode_app
+
+_ex_miring = _Img.Exif()
+_ex_miring[0x0112] = 6  # Rotasi 90 derajat CW
+_buf_miring = io.BytesIO()
+_Img.new("RGB", (100, 200), (255, 255, 255)).save(_buf_miring, format="JPEG", exif=_ex_miring)
+with _Img.open(io.BytesIO(_buf_miring.getvalue())) as _im_m:
+    assert _im_m.getexif().get(0x0112, 1) == 6
+    _im_tegak = _ImageOps.exif_transpose(_im_m)
+    assert _im_tegak.size == (200, 100), _im_tegak.size
+
 print("semua uji lolos")

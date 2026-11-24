@@ -1,3 +1,4 @@
+import asyncio
 """Server model Summa.
 
 Rantai: foto -> EasyOCR -> LayoutLMv3 -> penengah hibrida -> JSON.
@@ -5,7 +6,10 @@ Disalin dari Notebook E sel 8, dengan satu tambahan: penengah hibrida,
 yang di notebook itu tidak dipakai.
 """
 
+from concurrent.futures import ThreadPoolExecutor
+import gc
 import io
+import json
 import os
 import resource  # hanya ada di Linux, dan kontainernya Linux
 import tempfile
@@ -15,7 +19,10 @@ import uuid
 import psutil
 import torch
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
-from PIL import Image
+from PIL import Image, ImageOps
+
+# Batas keras 25 megapiksel untuk mencegah decompression bomb yang memicu OOM
+Image.MAX_IMAGE_PIXELS = 25_000_000
 
 import gerbang_vlm
 import pembanding_aturan as PA
@@ -68,6 +75,12 @@ id2label = {int(i): L for i, L in model.config.id2label.items()}
 DETIK_MUAT = round(time.time() - _mulai, 1)
 
 app = FastAPI()
+
+# Membatasi inferensi serentak maksimal 1 agar tidak memicu OOM di Railway 8 GB
+_SEMAPHORE_KONKURENSI = asyncio.Semaphore(1)
+_ANTREAN_MAKS = 3
+_BATAS_TUNGGU_SEMAPHORE = 45.0
+_antrean_aktif = 0
 
 
 def ocr_mentah(jalur):
@@ -195,7 +208,14 @@ def jalankan(jalur):
     w = {}
 
     t = time.perf_counter()
-    img = Image.open(jalur).convert("RGB")
+    with Image.open(jalur) as _im_awal:
+        _orientasi = _im_awal.getexif().get(0x0112, 1)
+        if _orientasi and _orientasi != 1:
+            _im_tegak = ImageOps.exif_transpose(_im_awal).convert("RGB")
+            _im_tegak.save(jalur, quality=95)
+            img = _im_tegak
+        else:
+            img = _im_awal.convert("RGB")
     L, T = img.size
     w["1_baca_gambar"] = time.perf_counter() - t
 
@@ -270,7 +290,10 @@ def sehat():
 @app.post("/ekstrak")
 async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
                   x_kunci: str = Header(default="")):
-    if KUNCI and x_kunci != KUNCI:
+    # Fail-closed: KUNCI wajib ada dan cocok
+    if not KUNCI:
+        raise HTTPException(status_code=500, detail="server belum disetel KUNCI")
+    if x_kunci != KUNCI:
         raise HTTPException(status_code=401, detail="kunci salah")
 
     isi = await berkas.read()
@@ -281,50 +304,94 @@ async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
 
     try:
         with Image.open(io.BytesIO(isi)) as im:
+            if im.width * im.height > Image.MAX_IMAGE_PIXELS:
+                raise HTTPException(status_code=413, detail="resolusi gambar terlalu besar (maks 25 MP)")
             akhiran = rantai.ekstensi_gambar(im.format)
+    except HTTPException:
+        raise
+    except Image.DecompressionBombError:
+        raise HTTPException(status_code=413, detail="resolusi gambar terlalu besar (maks 25 MP)")
     except Exception:
         raise HTTPException(status_code=400, detail="bukan berkas gambar")
     if akhiran is None:
         raise HTTPException(status_code=415, detail="format gambar tidak didukung")
 
-    jalur = None
+    global _antrean_aktif
+    if _antrean_aktif >= _ANTREAN_MAKS:
+        raise HTTPException(
+            status_code=503,
+            detail="server sedang sibuk memproses antrean struk, coba beberapa detik lagi",
+        )
+    _antrean_aktif += 1
     try:
-        with tempfile.NamedTemporaryFile(suffix=akhiran, delete=False) as f:
-            f.write(isi)
-            jalur = f.name
-        keluar, waktu = jalankan(jalur)
-        if keluar is None:
-            raise HTTPException(status_code=422, detail="OCR tidak menemukan teks apa pun")
-        hasil, kot, tinggi = keluar
+        try:
+            await asyncio.wait_for(_SEMAPHORE_KONKURENSI.acquire(), timeout=_BATAS_TUNGGU_SEMAPHORE)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=503, detail="server sedang sibuk, waktu tunggu antrean habis")
+        try:
+            def _eksekusi_inferensi():
+                jalur = None
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=akhiran, delete=False) as f:
+                        f.write(isi)
+                        jalur = f.name
+                    keluar, waktu = jalankan(jalur)
+                    if keluar is None:
+                        return None, None, None, waktu
+                    hasil, kot, tinggi = keluar
+                    return hasil, kot, tinggi, waktu
+                finally:
+                    if jalur and os.path.exists(jalur):
+                        os.unlink(jalur)
+                    gc.collect()
+
+            hasil, kot, tinggi, waktu = await asyncio.to_thread(_eksekusi_inferensi)
+        finally:
+            _SEMAPHORE_KONKURENSI.release()
     finally:
-        if jalur and os.path.exists(jalur):
-            os.unlink(jalur)
+        _antrean_aktif -= 1
+
+    if hasil is None:
+        raise HTTPException(status_code=422, detail="OCR tidak menemukan teks apa pun")
 
     id_struk = uuid.uuid4().hex[:12]
     aplikasi = rantai.ke_kontrak_aplikasi(hasil, kot, id_struk, MODEL_ID)
     minta = gerbang_vlm.perlu_tambal(aplikasi, kot, tinggi)
-    # Dihitung SEBELUM penambalan apa pun, sebab tambal_item mengisi lubang
-    # harga yang justru menjadi dasar pemicunya.
     minta_item = gerbang_vlm.perlu_tambal_item(aplikasi)
     tertulis = []
     item_vlm = []
     if (minta or minta_item) and vlm.aktif():
+        def _eksekusi_vlm():
+            _tertulis = []
+            _item_vlm = []
+            if minta and minta_item:
+                def _panggil_ringkasan():
+                    with Image.open(io.BytesIO(isi)) as _im1:
+                        return vlm.tanya(_im1, minta, uang=rantai._uang)
+
+                def _panggil_item():
+                    with Image.open(io.BytesIO(isi)) as _im2:
+                        return vlm.tanya_item(_im2, uang=rantai._uang)
+
+                with ThreadPoolExecutor(max_workers=2) as _pool:
+                    _f_ringkasan = _pool.submit(_panggil_ringkasan)
+                    _f_item = _pool.submit(_panggil_item)
+                    _jwb_ringkasan = _f_ringkasan.result()
+                    _jwb_item = _f_item.result()
+                _tertulis = gerbang_vlm.tambal(aplikasi, _jwb_ringkasan, kot, tinggi)
+                _item_vlm = gerbang_vlm.tambal_item(aplikasi, _jwb_item)
+            else:
+                with Image.open(io.BytesIO(isi)) as _im:
+                    if minta:
+                        jawaban = vlm.tanya(_im, minta, uang=rantai._uang)
+                        _tertulis = gerbang_vlm.tambal(aplikasi, jawaban, kot, tinggi)
+                    if minta_item:
+                        _item_vlm = gerbang_vlm.tambal_item(
+                            aplikasi, vlm.tanya_item(_im, uang=rantai._uang))
+            return _tertulis, _item_vlm
+
         _t = time.perf_counter()
-        # Citra ASLI yang dikirim, bukan gambar jalur penyelamat yang sudah
-        # diputar: VLM menangani kemiringan lebih baik daripada rantai ini.
-        # Berkas sementaranya sudah dihapus, jadi dipakai `isi` yang masih ada.
-        with Image.open(io.BytesIO(isi)) as _im:
-            if minta:
-                jawaban = vlm.tanya(_im, minta, uang=rantai._uang)
-                tertulis = gerbang_vlm.tambal(aplikasi, jawaban, kot, tinggi)
-            # Panggilan KEDUA, bukan gabungan: perintah baris barang menuntut
-            # senarai panjang dengan aturannya sendiri, dan menggabungkannya
-            # dengan perintah medan ringkasan akan menurunkan keduanya.
-            if minta_item:
-                item_vlm = gerbang_vlm.tambal_item(
-                    aplikasi, vlm.tanya_item(_im, uang=rantai._uang))
-        # Masuk ke `total` juga, sebab `total` dipakai mengukur latensi
-        # peladen dan panggilan VLM itu waktu peladen yang sungguhan.
+        tertulis, item_vlm = await asyncio.to_thread(_eksekusi_vlm)
         waktu["9_vlm"] = time.perf_counter() - _t
         waktu["total"] = waktu.get("total", 0.0) + waktu["9_vlm"]
     jawab = {
@@ -354,4 +421,12 @@ async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
         jawab["kotak"] = [{"teks": b["teks"], "bbox": b["bbox"],
                            "label": b["_label"], "yakin": b["_yakin"]}
                           for b in kot]
+    print(json.dumps({
+        "event": "ekstrak_selesai",
+        "id": id_struk,
+        "waktu": jawab["waktu"],
+        "vlm_tertulis": tertulis,
+        "vlm_item_tertulis": item_vlm,
+        "rss_gb": round(psutil.Process().memory_info().rss / 1e9, 2),
+    }), flush=True)
     return jawab
