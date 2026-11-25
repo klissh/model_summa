@@ -12,7 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Bobot diunduh saat build, lalu ikut masuk ke dalam image. Tanpa ini,
 # setiap kali layanan bangun dari tidur ia mengunduh ulang sekitar 600 MB.
-ARG MODEL_ID=Klissh/layoutlmv3-struk-summa-ocr
+# Bawaan Model v2 (pembaca DBNet). Kembali ke Model v1: --build-arg MODEL_ID=Klissh/layoutlmv3-struk-summa-ocr
+# dan setel PEMBACA=craft saat berjalan. EasyOCR tidak dimuat saat startup kecuali PEMBACA=craft.
+ARG MODEL_ID=Klissh/layoutlmv3-struk-summa-v2-dbnet
 ENV MODEL_ID=${MODEL_ID}
 RUN python -c "import easyocr; easyocr.Reader(['en'], gpu=False)" \
  && python -c "import os; from transformers import LayoutLMv3Processor, LayoutLMv3ForTokenClassification; \

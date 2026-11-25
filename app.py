@@ -1,11 +1,11 @@
-import asyncio
 """Server model Summa.
 
-Rantai: foto -> EasyOCR -> LayoutLMv3 -> penengah hibrida -> JSON.
-Disalin dari Notebook E sel 8, dengan satu tambahan: penengah hibrida,
-yang di notebook itu tidak dipakai.
+Rantai bawaan (Model v2): foto -> DBNet + PP-OCRv4 -> pecah_baris -> LayoutLMv3
+v2 -> penengah hibrida -> JSON. EasyOCR/CRAFT TIDAK dimuat.
+Rantai lama (Model v1, PEMBACA=craft + MODEL_ID=...-ocr): foto -> EasyOCR ->
+LayoutLMv3 -> penengah hibrida -> JSON, disalin dari Notebook E sel 8.
 """
-
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import gc
 import io
@@ -26,13 +26,18 @@ Image.MAX_IMAGE_PIXELS = 25_000_000
 
 import gerbang_vlm
 import pembanding_aturan as PA
+import pembaca_dbnet
 import pengenal_ppocr
 import pisah_tahap
 import rantai
 import vlm
 from hibrida_penengah import SET_ATURAN_MENANG, penengah
 
-MODEL_ID = os.environ.get("MODEL_ID", "Klissh/layoutlmv3-struk-summa-ocr")
+MODEL_ID = os.environ.get("MODEL_ID", "Klissh/layoutlmv3-struk-summa-v2-dbnet")
+# "dbnet" (bawaan, cocok dengan Model v2) atau "craft" (EasyOCR, cocok dengan Model v1).
+# Pembaca harus cocok dengan model: Model v1 dilatih pada kotak CRAFT, Model v2 pada kotak DBNet.
+PEMBACA = os.environ.get("PEMBACA", "dbnet").strip().lower()
+assert PEMBACA in ("dbnet", "craft"), "PEMBACA harus dbnet atau craft"
 KUNCI = os.environ.get("KUNCI", "")
 MAKS_BYTE = 10 * 1024 * 1024
 SATU_TOTAL = False  # False = varian P2 yang dipra-registrasikan, True = P2U
@@ -45,22 +50,28 @@ LANGKAH = 128
 
 _mulai = time.time()
 
-import easyocr  # noqa: E402  (diimpor setelah pencatat waktu, supaya ikut terukur)
 from transformers import (  # noqa: E402
     LayoutLMv3ForTokenClassification,
     LayoutLMv3Processor,
 )
 
-# quantize=False WAJIB. Nilai bawaannya True, dan kuantisasi int8 hanya
-# diterapkan di CPU. Data gold dibuat Notebook A di GPU, jadi tanpa kuantisasi.
-# Dengan kuantisasi, pengenal huruf membaca "RIDGI (LAY" untuk kata yang di
-# gold terbaca "KIDDY CLAY", dan model menerima teks yang asing baginya.
-pembaca = easyocr.Reader(rantai.BAHASA_OCR, gpu=False, quantize=False)
+if PEMBACA == "craft":
+    import easyocr  # noqa: E402  (jalur Model v1 saja; diimpor setelah pencatat waktu supaya ikut terukur)
 
-# Sengaja di sini, saat peladen hidup, bukan saat permintaan pertama datang.
-# Salah setel PENGENAL harus menjatuhkan peladen di deploy, bukan diam-diam
-# berjalan dengan pengenal yang bukan seperti tertulis di setelan.
-pengenal_ppocr.muat()
+    # quantize=False WAJIB. Nilai bawaannya True, dan kuantisasi int8 hanya
+    # diterapkan di CPU. Data gold dibuat Notebook A di GPU, jadi tanpa kuantisasi.
+    # Dengan kuantisasi, pengenal huruf membaca "RIDGI (LAY" untuk kata yang di
+    # gold terbaca "KIDDY CLAY", dan model menerima teks yang asing baginya.
+    pembaca = easyocr.Reader(rantai.BAHASA_OCR, gpu=False, quantize=False)
+    # Sengaja di sini, saat peladen hidup, bukan saat permintaan pertama datang.
+    # Salah setel PENGENAL harus menjatuhkan peladen di deploy, bukan diam-diam
+    # berjalan dengan pengenal yang bukan seperti tertulis di setelan.
+    pengenal_ppocr.muat()
+else:
+    # Model v2: tanpa EasyOCR/CRAFT sama sekali, jadi RAM startup jauh lebih kecil.
+    easyocr = None
+    pembaca = None
+    pembaca_dbnet.muat()
 
 # JEBAKAN: kalau apply_ocr True, processor menjalankan OCR sendiri dan
 # menimpa kotak hasil EasyOCR tanpa pesan apa pun.
@@ -208,19 +219,26 @@ def jalankan(jalur):
     w = {}
 
     t = time.perf_counter()
-    with Image.open(jalur) as _im_awal:
-        _orientasi = _im_awal.getexif().get(0x0112, 1)
-        if _orientasi and _orientasi != 1:
-            _im_tegak = ImageOps.exif_transpose(_im_awal).convert("RGB")
-            _im_tegak.save(jalur, quality=95)
-            img = _im_tegak
-        else:
-            img = _im_awal.convert("RGB")
+    if PEMBACA == "dbnet":
+        # EXIF diluruskan di dalam siapkan_citra; sisi <= 1600 dan JPEG 85, seperti yang diukur
+        img = pembaca_dbnet.siapkan_citra(jalur)
+    else:
+        with Image.open(jalur) as _im_awal:
+            _orientasi = _im_awal.getexif().get(0x0112, 1)
+            if _orientasi and _orientasi != 1:
+                _im_tegak = ImageOps.exif_transpose(_im_awal).convert("RGB")
+                _im_tegak.save(jalur, quality=95)
+                img = _im_tegak
+            else:
+                img = _im_awal.convert("RGB")
     L, T = img.size
     w["1_baca_gambar"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    kotak = ocr_mentah(jalur)
+    if PEMBACA == "dbnet":
+        kotak = pembaca_dbnet.kotak_dbnet(img, rantai.normalisasi_angka)
+    else:
+        kotak = ocr_mentah(jalur)
     w["2_ocr"] = time.perf_counter() - t
     if not kotak:
         return None, w
@@ -230,9 +248,11 @@ def jalankan(jalur):
     # Jalur penyelamat, hanya saat TIDAK SATU PUN item dapat harga. Hasilnya
     # dipakai cuma kalau item berharganya lebih banyak, jadi struk yang sudah
     # jalan tidak bisa menjadi lebih buruk karena jalur ini. Lihat
-    # pisah_tahap.py untuk angka dan alasannya.
+    # pisah_tahap.py untuk angka dan alasannya. Bergantung pada CRAFT, jadi
+    # hanya ada di jalur Model v1; di jalur DBNet tidak dijalankan (juga tidak
+    # dijalankan saat Model v2 diukur).
     dipakai = False
-    if pisah_tahap.perlu(hasil):
+    if pembaca is not None and pisah_tahap.perlu(hasil):
         t = time.perf_counter()
         img2, kotak2 = pisah_tahap.ocr(jalur, pembaca)
         if img2 is not None and kotak2:
@@ -266,8 +286,9 @@ def sehat():
         "siap": True,
         "model": MODEL_ID,
         "detik_muat": DETIK_MUAT,
-        "easyocr": easyocr.__version__,
-        "pengenal": pengenal_ppocr.nama(),
+        "pembaca": PEMBACA,
+        "easyocr": easyocr.__version__ if easyocr else None,
+        "pengenal": pengenal_ppocr.nama() if PEMBACA == "craft" else "PP-OCRv4 rec (DBNet, rapidocr_onnxruntime)",
         "pengenal_gagal": pengenal_ppocr.gagal(),
         "pengenal_detik": pengenal_ppocr.detik(),
         "kuantisasi": False,
@@ -345,7 +366,9 @@ async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
                         os.unlink(jalur)
                     gc.collect()
 
-            hasil, kot, tinggi, waktu = await asyncio.to_thread(_eksekusi_inferensi)
+            # Inferensi berat jalan di utas pekerja; event loop tetap bebas melayani antrean.
+            hasil, kot, tinggi, waktu = await asyncio.get_running_loop().run_in_executor(
+                None, _eksekusi_inferensi)
         finally:
             _SEMAPHORE_KONKURENSI.release()
     finally:
@@ -391,7 +414,9 @@ async def ekstrak(berkas: UploadFile = File(...), rinci: int = 0,
             return _tertulis, _item_vlm
 
         _t = time.perf_counter()
-        tertulis, item_vlm = await asyncio.to_thread(_eksekusi_vlm)
+        # ThreadPoolExecutor di dalam _eksekusi_vlm menunggu .result() di utas pekerja, bukan di event loop.
+        tertulis, item_vlm = await asyncio.get_running_loop().run_in_executor(
+            None, _eksekusi_vlm)
         waktu["9_vlm"] = time.perf_counter() - _t
         waktu["total"] = waktu.get("total", 0.0) + waktu["9_vlm"]
     jawab = {

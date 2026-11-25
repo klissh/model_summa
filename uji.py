@@ -1461,4 +1461,181 @@ with _Img.open(io.BytesIO(_buf_miring.getvalue())) as _im_m:
     _im_tegak = _ImageOps.exif_transpose(_im_m)
     assert _im_tegak.size == (200, 100), _im_tegak.size
 
+print("27b. orientasi EXIF dan pagar app.py: lolos")
+
+
+# --- 28. pembaca DBNet: pecah_baris, kode pajak, siapkan_citra, adaptor kotak ---
+import pembaca_dbnet as _PD  # noqa: E402
+
+# Cadangan proporsional (tanpa kotak huruf): lebar dibagi menurut posisi huruf.
+# "AB 1.80SR" = 9 huruf pada lebar 90, jadi 10 piksel per huruf.
+_s = _PD.pecah_baris([{"teks": "AB 1.80SR", "bbox": [0, 0, 90, 10], "yakin": 0.8}])
+assert [b["teks"] for b in _s] == ["AB", "1.80", "SR"], _s
+assert [b["bbox"] for b in _s] == [[0, 0, 20, 10], [30, 0, 70, 10], [70, 0, 90, 10]], _s
+assert all(b["yakin"] == 0.8 for b in _s)
+
+# Kode pajak Malaysia menempel pada harga dua desimal: dipisah.
+for _t, _harga, _kode in [("1.80SR", "1.80", "SR"), ("3.71ZRL", "3.71", "ZRL"),
+                          ("1,234.50SR", "1,234.50", "SR"), ("12,50SR", "12,50", "SR")]:
+    _s = _PD.pecah_baris([{"teks": _t, "bbox": [0, 0, 10 * len(_t), 10]}])
+    assert [b["teks"] for b in _s] == [_harga, _kode], (_t, _s)
+# Kurung penutup ikut dibuang pada jalur proporsional.
+assert [b["teks"] for b in _PD.pecah_baris([{"teks": "(1.80SR)", "bbox": [0, 0, 80, 10]}])] == ["(1.80", "SR"]
+# Yang BUKAN harga dua desimal tidak boleh dipecah: SKU, satu desimal, tiga huruf lebih.
+for _t in ["AB12SR", "12.5SR", "1.80SRXY", "SR", "1.80", "TOTAL"]:
+    _s = _PD.pecah_baris([{"teks": _t, "bbox": [0, 0, 60, 10]}])
+    assert [b["teks"] for b in _s] == [_t], (_t, _s)
+# Teks kosong atau None tidak menghasilkan kata.
+assert _PD.pecah_baris([{"teks": "", "bbox": [0, 0, 10, 10]}, {"teks": None, "bbox": [0, 0, 10, 10]}]) == []
+
+
+def _huruf(teks, x0, lebar=10, tinggi=20, celah=None):
+    """Kotak per huruf; `celah` = {indeks: piksel ekstra sebelum huruf itu}."""
+    out, x = [], x0
+    for i, ch in enumerate(teks):
+        x += (celah or {}).get(i, 0)
+        out.append((ch, [x, 0, x + lebar, tinggi]))
+        x += lebar
+    return out
+
+
+# Jalur kotak huruf: kata dipecah pada spasi dan pada celah >= 0,25 tinggi (5 piksel).
+_h = _huruf("AB", 0) + _huruf("CD", 40)                      # celah 20 px di antara B dan C
+_s = _PD.pecah_baris([{"teks": "ABCD", "bbox": [0, 0, 60, 20], "yakin": 0.9, "huruf": _h}])
+assert [b["teks"] for b in _s] == ["AB", "CD"] and _s[0]["bbox"] == [0, 0, 20, 20] and _s[1]["bbox"] == [40, 0, 60, 20], _s
+_h = _huruf("AB", 0) + [(" ", [20, 0, 25, 20])] + _huruf("CD", 25)  # spasi eksplisit
+assert [b["teks"] for b in _PD.pecah_baris([{"teks": "AB CD", "bbox": [0, 0, 45, 20], "huruf": _h}])] == ["AB", "CD"]
+_h = _huruf("AB", 0) + _huruf("CD", 22)                      # celah 2 px < 5 px: satu kata
+assert [b["teks"] for b in _PD.pecah_baris([{"teks": "ABCD", "bbox": [0, 0, 42, 20], "huruf": _h}])] == ["ABCD"]
+# Kode pajak pada jalur kotak huruf: koordinat kata = gabungan huruf, bukan hasil bagi rata.
+_h = _huruf("1.80SR", 100)
+_s = _PD.pecah_baris([{"teks": "1.80SR", "bbox": [100, 0, 160, 20], "huruf": _h}])
+assert [b["teks"] for b in _s] == ["1.80", "SR"], _s
+assert _s[0]["bbox"] == [100, 0, 140, 20] and _s[1]["bbox"] == [140, 0, 160, 20], _s
+_h = _huruf("3.71ZRL", 0)
+assert [b["teks"] for b in _PD.pecah_baris([{"teks": "3.71ZRL", "bbox": [0, 0, 70, 20], "huruf": _h}])] == ["3.71", "ZRL"]
+
+# siapkan_citra: orientasi EXIF diluruskan, sisi terpanjang <= 1600, keluaran RGB.
+from PIL import Image as _ImgD  # noqa: E402
+_ex6 = _ImgD.Exif()
+_ex6[0x0112] = 6
+_b6 = io.BytesIO()
+_ImgD.new("RGB", (100, 200), "white").save(_b6, format="JPEG", exif=_ex6)
+_b6.seek(0)
+_c = _PD.siapkan_citra(_b6)
+assert _c.size == (200, 100) and _c.mode == "RGB", _c.size
+_bb = io.BytesIO()
+_ImgD.new("RGB", (3200, 1000), "white").save(_bb, format="JPEG")
+_bb.seek(0)
+assert _PD.siapkan_citra(_bb).size == (1600, 500)
+_bk = io.BytesIO()
+_ImgD.new("L", (300, 400), 128).save(_bk, format="PNG")
+_bk.seek(0)
+assert _PD.siapkan_citra(_bk).mode == "RGB"
+
+
+class _MesinPalsu:
+    """Meniru keluaran rapidocr: [quad, teks, skor, kotak_huruf, huruf]; mencatat bentuk masukannya."""
+
+    def __init__(self, hasil):
+        self.hasil, self.masukan = hasil, None
+
+    def __call__(self, bgr, **kw):
+        self.masukan = (bgr, kw)
+        return self.hasil, None
+
+
+def _quad(x0, y0, x1, y1):
+    return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+
+
+_teks = "TOTAL 16,75SR"
+_hq = [_quad(i * 10, 0, i * 10 + 10, 20) for i in range(len(_teks))]
+_m = _MesinPalsu([[_quad(0, 0, 130, 20), _teks, 0.9, _hq, list(_teks)],
+                  [_quad(0, 30, 50, 50), "品", 0.5, None, None],     # hanya huruf Han: dibuang
+                  [_quad(0, 60, 40, 80), "RM1", 0.7, None, None]])        # tanpa kotak huruf: jalur cadangan
+_cit = _ImgD.new("RGB", (400, 100), (10, 20, 30))
+_k = _PD.kotak_dbnet(_cit, normalisasi_angka, mesin=_m)
+assert [b["teks"] for b in _k] == ["TOTAL", "16.75", "SR", "RM1"], _k      # koma desimal dinormalisasi
+assert [b["teks_asli"] for b in _k][1] == "16,75"
+assert _m.masukan[1] == dict(use_det=True, use_cls=False, use_rec=True, return_word_box=True)
+assert tuple(_m.masukan[0][0, 0]) == (30, 20, 10), _m.masukan[0][0, 0]       # BGR, bukan RGB
+assert all(0 <= b["bbox"][0] < b["bbox"][2] <= 400 and 0 <= b["bbox"][1] < b["bbox"][3] <= 100 for b in _k)
+assert [b["bbox"][1] for b in _k] == sorted(b["bbox"][1] for b in _k)         # urut atas ke bawah
+
+print("28. pembaca DBNet, pecah_baris, kode pajak: lolos")
+
+
+# --- 29. app.py: tanpa EasyOCR saat startup, inferensi dan VLM tidak memblokir event loop ---
+_pohon = _ast.parse(_kode_app)
+_ekstrak = next(n for n in _pohon.body if isinstance(n, _ast.AsyncFunctionDef) and n.name == "ekstrak")
+
+
+def _panggilan(simpul):
+    for n in _ast.walk(simpul):
+        if isinstance(n, _ast.Call):
+            yield n
+
+
+def _nama_atribut(c):
+    return c.func.attr if isinstance(c.func, _ast.Attribute) else getattr(c.func, "id", "")
+
+
+# 1. Setiap `await ...run_in_executor(None, fungsi)` memanggil fungsi bersarang, bukan hasil panggilannya.
+_menunggu = [n for n in _ast.walk(_ekstrak) if isinstance(n, _ast.Await)
+             and isinstance(n.value, _ast.Call) and _nama_atribut(n.value) == "run_in_executor"]
+assert len(_menunggu) == 2, len(_menunggu)           # inferensi dan VLM
+_fungsi_bersarang = {n.name for n in _ast.walk(_ekstrak) if isinstance(n, _ast.FunctionDef)}
+assert {a.value.args[1].id for a in _menunggu} == {"_eksekusi_inferensi", "_eksekusi_vlm"}
+assert all(a.value.args[0].value is None for a in _menunggu)
+assert {"_eksekusi_inferensi", "_eksekusi_vlm"} <= _fungsi_bersarang
+
+# 2. Kerja berat (.result(), .submit(), jalankan(), ThreadPoolExecutor) hanya di dalam fungsi bersarang
+#    yang dijalankan utas pekerja, tidak pernah langsung di badan coroutine.
+_berat = {"result", "submit", "jalankan", "ThreadPoolExecutor", "tanya", "tanya_item", "sleep"}
+_di_coroutine = []
+for _n in _ekstrak.body:
+    for _stmt in [_n]:
+        _lewat = [x for x in _ast.walk(_stmt) if isinstance(x, _ast.FunctionDef)]
+        _dalam = {id(y) for f in _lewat for y in _ast.walk(f)}
+        for _c in _panggilan(_stmt):
+            if id(_c) not in _dalam and _nama_atribut(_c) in _berat:
+                _di_coroutine.append(_nama_atribut(_c))
+assert not _di_coroutine, "memblokir event loop: %s" % _di_coroutine
+assert "asyncio.to_thread" not in _kode_app
+
+# 3. Perilaku polanya: fungsi pemblokir lewat run_in_executor tidak menahan event loop.
+import asyncio as _asyncio  # noqa: E402
+import time as _waktu  # noqa: E402
+
+
+async def _uji_loop():
+    _denyut = []
+
+    async def _pendetak():
+        for _ in range(8):
+            _denyut.append(_waktu.perf_counter())
+            await _asyncio.sleep(0.02)
+
+    _t = _asyncio.ensure_future(_pendetak())
+    await _asyncio.get_running_loop().run_in_executor(None, _waktu.sleep, 0.2)
+    await _t
+    return _denyut
+
+
+_d = _asyncio.run(_uji_loop())
+assert len(_d) == 8 and max(b - a for a, b in zip(_d, _d[1:])) < 0.1, "event loop terblokir"
+
+# 4. Startup produksi tidak memuat EasyOCR/CRAFT kecuali PEMBACA=craft (jalur Model v1).
+_impor_atas = [n for n in _pohon.body if isinstance(n, (_ast.Import, _ast.ImportFrom))]
+assert not any(a.name.split(".")[0] == "easyocr" for n in _impor_atas if isinstance(n, _ast.Import) for a in n.names)
+_blok_craft = next(n for n in _pohon.body if isinstance(n, _ast.If) and "PEMBACA" in _ast.dump(n.test)
+                   and any(isinstance(m, _ast.Import) and m.names[0].name == "easyocr" for m in n.body))
+assert any(isinstance(m, _ast.Import) and m.names[0].name == "easyocr" for m in _blok_craft.body)
+assert not any(isinstance(m, _ast.Import) and m.names[0].name == "easyocr" for m in _blok_craft.orelse)
+assert 'os.environ.get("MODEL_ID", "Klissh/layoutlmv3-struk-summa-v2-dbnet")' in _kode_app
+assert 'os.environ.get("PEMBACA", "dbnet")' in _kode_app
+
+print("29. app.py: tanpa EasyOCR saat startup, event loop tidak terblokir: lolos")
+
 print("semua uji lolos")

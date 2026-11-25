@@ -6,16 +6,19 @@ torch==2.11.0+cpu
 # Versi ini wajib sama dengan Notebook C dan E. Beda versi, beda keluaran.
 transformers==5.20.1
 
+# Hanya untuk jalur Model v1 (PEMBACA=craft). Tidak dimuat saat startup bawaan
+# (Model v2), tetapi dipertahankan supaya kembali ke v1 cukup dengan variabel lingkungan.
 # Versi yang dipakai Notebook E dan Notebook A. Jangan dilepas.
 # Versi lain memakai model pengenal teks yang berbeda, dan teksnya ikut
 # berbeda, sehingga model menerima masukan yang tidak pernah dia lihat.
 easyocr==1.7.2
 
-# Pengenal huruf alternatif, dipakai hanya kalau PENGENAL=ppocr. Dipasang
-# walau bawaannya mati, supaya menyalakannya cukup satu variabel lingkungan
-# dan tidak perlu membangun ulang image. Ia menarik onnxruntime dan opencv,
-# sekitar 120 MB, jauh di bawah torch. Lihat README bagian Pengenal huruf.
+# Pembaca bawaan Model v2: DBNet + PP-OCRv4 (pembaca_dbnet.py). Versi ini diukur
+# di 04_uji_ujung_ke_ujung_v2b.py; versi lain bisa mengubah kotak dan spasi.
+# onnxruntime ditulis eksplisit tetapi tidak dipaku: rapidocr yang menentukan
+# rentang yang cocok, dan paku manual di sini bisa berbenturan dengannya.
 rapidocr_onnxruntime==1.4.4
+onnxruntime>=1.17
 
 # Pustaka server. Dipaku pada versi stabil supaya deploy ulang menjelang
 # pameran atau sidang tidak pernah menarik rilis major yang mematahkan API.
