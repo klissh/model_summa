@@ -1638,4 +1638,107 @@ assert 'os.environ.get("PEMBACA", "dbnet")' in _kode_app
 
 print("29. app.py: tanpa EasyOCR saat startup, event loop tidak terblokir: lolos")
 
+
+# --- 30. dua uang utuh tidak disambung, penjaga kewajaran, tanggal+jam, bintang ---
+# Struk nyata total RM 61,20 menampilkan subtotal 61200.00 dan pajak 7290.48.
+def _kk3(teks, x, y, label="O"):
+    return kotak(teks, x, y, x + 60, y + 20, label)
+
+
+def _nilai(h, medan):
+    return (h.get(medan) or {}).get("nilai")
+
+
+# a. jalur prediksi: ringkasan menolak sambungan dua uang utuh, barang mengambil
+# yang paling kanan
+from rantai import _jalur_prediksi  # noqa: E402
+
+with _jalur_prediksi():
+    for _p, _kanan in ((["61.20", "0.00"], 0.0), (["7.29", "0.48"], 0.48), (["RM1,250.00", "3.30*"], 3.3)):
+        assert _up(_p) is None, (_p, _up(_p))
+        assert _up(_p, kanan=True) == _kanan, (_p, _up(_p, kanan=True))
+    # satu kotak bertitik desimal ganda itu dua angka menempel: tidak ditebak
+    assert _up(["61.200.00"]) is None and _up(["61.200.00"], kanan=True) is None
+    assert _up(["7.290.48"]) is None
+    # pagar: ribuan sungguhan dan potongan satu bilangan tidak berubah
+    assert _up(["1,250.00"]) == 1250.0 and _up(["1.250,00"]) == 1250.0
+    assert _up(["1,", "250.00"]) == 1250.0 and _up(["10 .", "90"]) == 10.9 and _up(["56", "95"]) == 56.95
+assert _uang("61.200.00") == 61200.0
+
+# ANTI-PENCEMARAN: di luar jalur prediksi perilakunya persis yang lama, sebab
+# ke_json dan _uang_potongan juga menyusun jawaban rujukan.
+assert _up(["61.20", "0.00"]) == _up(["61.20", "0.00"], kanan=True) == 61200.0
+assert _up(["61.200.00"]) == 61200.0
+_BRG = [_kk3("ROTI", 0, 0, "menu.nm"), _kk3("4.09", 300, 0), _kk3("3.80", 366, 0)]
+assert ke_json([dict(b) for b in _BRG], 600, 800)["item"][0]["harga"] == 4093.8
+assert _kjl([dict(b) for b in _BRG], 600, 800)["item"][0]["harga"] == 3.8
+# penandanya pulih sesudah ke_json_lengkap, juga ketika ia gagal
+assert ke_json([dict(b) for b in _BRG], 600, 800)["item"][0]["harga"] == 4093.8
+try:
+    _kjl([{"teks": "rusak"}], 600, 800)
+except KeyError:
+    pass
+assert _up(["61.20", "0.00"]) == 61200.0
+
+# b. kasus 61,20: subtotal dan pajak tidak pernah meledak, kolom kosong bila tidak yakin
+_TOT = [_kk3("Total", 0, 200), _kk3("61.20", 300, 200, "total.total_price")]
+_A = [_kk3("61.200.00", 300, 100, "sub_total.subtotal_price")]
+_B = [_kk3("61.20", 300, 100, "sub_total.subtotal_price"), _kk3("0.00", 366, 100)]
+_C = [_kk3("7.29", 300, 140, "sub_total.tax_price"), _kk3("0.48", 366, 140, "sub_total.tax_price")]
+_h = _kjl([dict(b) for b in _A + _C + _TOT], 600, 800)
+assert _h["subtotal"] is None and _h["pajak"] is None and _nilai(_h, "total") == 61.2, _h
+assert _nilai(_kjl([dict(b) for b in _B + _TOT], 600, 800), "subtotal") == 61.2
+_k = ke_kontrak_aplikasi(_h, [dict(b) for b in _A + _C + _TOT], "x", "v")["ringkasan"]
+assert _k["subtotal"] == _k["pajak"] == {"nilai": None, "teks": None, "keyakinan": None, "asal": None}
+# ke_json polos TETAP mentah: ia penyusun jawaban rujukan
+assert _nilai(ke_json([dict(b) for b in _A], 600, 800), "subtotal") == 61200.0
+
+
+# c. penjaga pasif tanpa acuan yang dapat dipercaya, dan batasnya
+def _jaga(total, subtotal=None, pajak=None, harga=()):
+    h = {"item": [{"harga": x} for x in harga],
+         "total": None if total is None else {"nilai": total},
+         "subtotal": None if subtotal is None else {"nilai": subtotal},
+         "pajak": None if pajak is None else {"nilai": pajak}}
+    h = _jw(h)
+    return _nilai(h, "subtotal"), _nilai(h, "pajak")
+
+
+from rantai import _jaga_wajar as _jw  # noqa: E402
+
+assert _jaga(61.2, 61200.0, 7290.48) == (None, None)
+assert _jaga(None, 61200.0, 7290.48) == (61200.0, 7290.48)
+assert _jaga(0.0, 61200.0, 7290.48) == (61200.0, 7290.48)
+assert _jaga(-1.0, 50.0, 3.0) == (50.0, 3.0)
+assert _jaga(6.0, 61.2, 3.5, harga=(30.0, 31.2)) == (61.2, 3.5)     # total salah baca, jangan buang yang benar
+assert _jaga(10.0, 20.0, 4.99) == (20.0, 4.99)
+assert _jaga(10.0, 20.01, 5.0) == (None, None)
+assert _jaga(61.2, 61.2, 0.0) == (61.2, 0.0)
+
+# d. tanggal dan jam yang ditempelkan DBNet dipisah sesudah model
+for _t, _tgl, _jam in (("Date:2024.09.1819:55:44", "2024.09.18", "19:55:44"),
+                       ("19/09/202409:05 PM", "19/09/2024", "09:05 PM")):
+    for _lab in ("O", "info.date", "info.time"):
+        _h = _kjl([_kk3(_t, 0, 0, _lab)], 600, 800)
+        assert (_h["tanggal"]["nilai"], _h["jam"]["nilai"]) == (_tgl, _jam), (_t, _lab, _h)
+# jawaban model dari kotak LAIN tidak ditimpa
+_h = _kjl([_kk3("01/01/2024", 0, 0, "info.date"), _kk3("08:00", 0, 40, "info.time"),
+           _kk3("2024.09.1819:55", 0, 80)], 600, 800)
+assert (_h["tanggal"]["nilai"], _h["jam"]["nilai"]) == ("01/01/2024", "08:00"), _h
+# bukan tanggal menempel: nomor panjang dan harga
+for _t in ("120240918195544", "2024.09.18", "19:55:44", "12.3419:55"):
+    assert _kjl([_kk3(_t, 0, 0)], 600, 800).get("tanggal") is None or _t == "2024.09.18", _t
+
+# e. bintang penanda di ujung baris dibuang pembaca; kolom "satuan*jumlah" tidak
+for _t, _jadi in (("3.30*", ["3.30"]), ("1,250.00*", ["1,250.00"]), ("1 1.30*", ["1", "1.30"]),
+                  ("3.29* 0.404", ["3.29*", "0.404"]), ("3.29*0.404", ["3.29*0.404"]),
+                  ("5*", ["5*"]), ("RING*", ["RING*"]), ("1,250.00", ["1,250.00"]),
+                  ("2024.09.1819:55:44", ["2024.09.1819:55:44"]), ("61.200.00", ["61.200.00"])):
+    _s = _PD.pecah_baris([{"teks": _t, "bbox": [0, 0, 10 * len(_t), 10]}])
+    assert [b["teks"] for b in _s] == _jadi, (_t, _s)
+_h = _huruf("3.30*", 0)
+assert [b["teks"] for b in _PD.pecah_baris([{"teks": "3.30*", "bbox": [0, 0, 50, 20], "huruf": _h}])] == ["3.30"]
+
+print("30. sambungan uang, penjaga kewajaran, tanggal+jam, bintang: lolos")
+
 print("semua uji lolos")

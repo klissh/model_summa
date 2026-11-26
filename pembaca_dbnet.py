@@ -8,9 +8,11 @@ dari eksperimen_kaggle/subkotak_dbnet.py, yang diukur oleh
 eksperimen_kaggle/04_uji_ujung_ke_ujung_v2b.py (11 struk uji3: 41/66 = 62,1%).
 Kalau salah satunya berubah, ubah keduanya dan ukur ulang.
 
-Satu-satunya beda dari berkas eksperimen: siapkan_citra() meluruskan orientasi EXIF
-(ImageOps.exif_transpose) lebih dulu. Pada foto tanpa EXIF miring keluarannya
-identik dengan yang diukur.
+Dua beda dari berkas eksperimen. siapkan_citra() meluruskan orientasi EXIF
+(ImageOps.exif_transpose) lebih dulu; pada foto tanpa EXIF miring keluarannya
+identik dengan yang diukur. pecah_baris() membuang bintang di ujung harga penutup
+baris; perubahan ini diukur terpisah dan TIDAK tercermin pada angka skrip 04,
+sebab berkas eksperimen sengaja tidak diubah (sidiknya tercatat sebagai bukti).
 
 Kembali ke Model v1: PEMBACA=craft bersama MODEL_ID=Klissh/layoutlmv3-struk-summa-ocr.
 Model v1 dilatih pada kotak CRAFT, jadi dua setelan itu harus berganti bersamaan.
@@ -22,6 +24,8 @@ import numpy as np
 
 SISI_MAKS, MUTU = 1600, 85           # sama dengan yang diukur: sisi terpanjang <= 1600, JPEG 85
 HARGA_PAJAK = re.compile(r"(\(?-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})([A-Za-z]{1,3})(\)?)")
+# Penanda di ujung harga ("3.30*") membuat harga ditolak penyusun item.
+HARGA_BINTANG = re.compile(r"-?\d{1,3}(?:,\d{3})*\.\d{2}\*")
 GAP_HURUF = 0.25      # celah antar huruf >= 0,25 tinggi baris dianggap batas kata
 
 _mesin = None
@@ -67,9 +71,17 @@ def pecah_baris(kotak):
     """kotak: [{teks, bbox, yakin, huruf?}] -> sub-kotak kata. Deterministik, tanpa label.
     Dengan `huruf` (kotak per huruf dari rapidocr return_word_box): koordinat KATA = gabungan kotak hurufnya.
     Tanpa `huruf`: cadangan proporsional, lebar dibagi menurut posisi huruf di dalam kotak baris.
-    Kode pajak yang menempel pada harga dua desimal ("1.80SR", "3.71ZRL") dipisah dalam kedua jalur."""
+    Kode pajak yang menempel pada harga dua desimal ("1.80SR", "3.71ZRL") dipisah dalam kedua jalur.
+    Bintang di ujung harga dibuang hanya bila kata itu penutup barisnya, sebab "3.29* 0.404" adalah
+    kolom satuan kali jumlah yang masih memerlukan bintangnya."""
     keluar = []
+
+    def _buang_bintang():
+        if keluar and HARGA_BINTANG.fullmatch(keluar[-1]["teks"]):
+            keluar[-1]["teks"] = keluar[-1]["teks"][:-1]
+
     for b in kotak:
+        awal = len(keluar)
         yakin = b.get("yakin", 1.0)
         if b.get("huruf"):
             tinggi = max(1, b["bbox"][3] - b["bbox"][1])
@@ -82,6 +94,8 @@ def pecah_baris(kotak):
                     bag = [tok[:n1], tok[n1:n1 + len(mm.group(2))]]
                 for h in bag:
                     keluar.append({"teks": "".join(c for c, _ in h), "bbox": _bb_huruf(h), "yakin": yakin})
+            if len(keluar) > awal:
+                _buang_bintang()
             continue
         t = b["teks"] or ""
         x0, y0, x1, y1 = b["bbox"]
@@ -97,6 +111,8 @@ def pecah_baris(kotak):
                 a = x0 + (x1 - x0) * (mulai + off) / n
                 z = x0 + (x1 - x0) * (mulai + off + len(s_)) / n
                 keluar.append({"teks": s_, "bbox": [int(a), y0, max(int(a) + 1, int(np.ceil(z))), y1], "yakin": yakin})
+        if len(keluar) > awal:
+            _buang_bintang()
     return keluar
 
 

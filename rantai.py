@@ -10,6 +10,8 @@ tanpa memuat model. Lihat uji.py.
 """
 
 import collections
+import contextlib
+import contextvars
 import statistics
 import re as _re
 
@@ -210,7 +212,7 @@ def _angka_baris(bar, label):
     pot = [b["teks"] for b in bar if b["_label"] == label]
     # _uang_potongan, bukan _uang: potongannya satu bilangan yang CRAFT pecah,
     # jadi titik desimal yang hilang atau terbaca koma masih bisa dipulihkan.
-    return _uang_potongan(pot) if any((x or "").strip() for x in pot) else None
+    return _uang_potongan(pot, kanan=True) if any((x or "").strip() for x in pot) else None
 
 
 # Garis bawah ikut, sebab pengenal huruf memberi "10 _" untuk "10.". Tanpa itu
@@ -305,7 +307,7 @@ def _harga_baris(bar):
     gugus.append(kini)
 
     pilih = next((g for g in gugus if any(b["_label"] == "menu.price" for b in g)), gugus[-1])
-    return _uang_potongan([b["teks"] for b in pilih])
+    return _uang_potongan([b["teks"] for b in pilih], kanan=True)
 
 
 def _buang_barcode(nm):
@@ -640,7 +642,28 @@ _KATA_MEDAN = {"subtotal": (("SUBT", "AMOUNT"), (), False),
 _SAMBUNG = ",'`\u2019"
 
 
-def _uang_potongan(potong):
+# Satu bilangan uang yang sudah lengkap: dua desimal, boleh ribuan dan bintang.
+_UANG_UTUH = _re.compile(r"(?i)(?:RM)?-?\d{1,3}(?:,\d{3})*\.\d{2}\*?")
+# "61.200.00": dua bilangan yang menempel, batasnya tidak dapat dipastikan.
+_TITIK_GANDA = _re.compile(r"\d\.\d{2,3}\.\d{2}(?!\d)")
+
+# Dua aturan di atas hanya hidup di jalur prediksi. ke_json() dan nilai_item.py
+# memakai _uang_potongan untuk menyusun jawaban rujukan, jadi bawaannya harus
+# tetap perilaku lama (anti-pencemaran). ContextVar, bukan peubah global, sebab
+# peladen melayani beberapa utas sekaligus.
+_PREDIKSI = contextvars.ContextVar("prediksi", default=False)
+
+
+@contextlib.contextmanager
+def _jalur_prediksi():
+    tanda = _PREDIKSI.set(True)
+    try:
+        yield
+    finally:
+        _PREDIKSI.reset(tanda)
+
+
+def _uang_potongan(potong, kanan=False):
     """Angkakan potongan satu bilangan, tahan titik desimal yang tidak terbaca.
 
     "2 ." + "05" jadi 2.05, titiknya terbaca dan _uang sudah cukup.
@@ -651,6 +674,15 @@ def _uang_potongan(potong):
     memuat titik atau koma, supaya bilangan utuh "170" tidak jadi 1,70.
     """
     p = [x for x in ((q or "").strip() for q in potong) if x]
+    # Dua uang utuh itu dua nilai, bukan potongan satu bilangan: menyambungnya
+    # memberi 61200,0 dari "61.20" + "0.00". Baris barang (kanan=True) mengambil
+    # kolom harga paling kanan; ringkasan menolak.
+    if _PREDIKSI.get():
+        utuh = [x for x in p if _UANG_UTUH.fullmatch(x.replace(" ", ""))]
+        if len(utuh) >= 2:
+            return _uang(utuh[-1]) if kanan else None
+        if len(p) == 1 and _TITIK_GANDA.search(p[0]):
+            return None
     # Koma atau petik di SAMBUNGAN antarpotongan itu titik desimal yang salah
     # terbaca. Pemisah ribuan tidak pernah di sambungan, ia selalu di dalam satu
     # potongan, jadi "1,234" + "56" tidak tersentuh.
@@ -874,6 +906,12 @@ def _cadangan_aturan(kot, lebar, tinggi, h):
     return h
 
 
+# "2024.09.1819:55:44": DBNet membaca tanggal dan jam sebagai satu kotak.
+_TANGGAL_JAM = _re.compile(
+    r"(?<!\d)((?:20\d{2}([./-])\d{2}\2\d{2})|(?:\d{2}([./-])\d{2}\3 *20\d{2}))"
+    r"((?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?: ?[AP]M)?)(?!\d)", _re.I)
+
+
 def _cadangan_bentuk(kot, h):
     """V4. Tanggal dan jam lewat bentuk tulisannya, hanya saat medan kosong.
 
@@ -890,6 +928,17 @@ def _cadangan_bentuk(kot, h):
                 h[medan] = {"teks": t, "nilai": t, "yakin": round(b["_yakin"], 4),
                             "bbox": list(b["bbox"])}
                 break
+    # Hanya mengisi yang kosong, atau merapikan jawaban yang kotaknya memang
+    # kotak gabungan ini. Jawaban dari kotak lain tidak disentuh.
+    for b in kot:
+        m = _TANGGAL_JAM.search(b["teks"] or "")
+        if not m:
+            continue
+        for medan, nilai in (("tanggal", m.group(1)), ("jam", m.group(4))):
+            if not h.get(medan) or h[medan]["teks"] == b["teks"]:
+                h[medan] = {"teks": nilai, "nilai": nilai, "yakin": round(b["_yakin"], 4),
+                            "bbox": list(b["bbox"])}
+        break
     return h
 
 
@@ -1042,6 +1091,26 @@ def _pindah_nontunai(kot, idb, h):
     return h
 
 
+def _jaga_wajar(h):
+    """Kosongkan pajak dan subtotal yang mustahil terhadap total. Tidak menebak.
+
+    Pajak setengah total atau lebih, dan subtotal di atas dua kali total, tidak
+    pernah sah. Penjaga diam bila total kosong, nol, atau di bawah separuh
+    jumlah harga barang, sebab saat itu total sendiri yang patut dicurigai.
+    """
+    nil = lambda m: (h.get(m) or {}).get("nilai")
+    total = nil("total")
+    barang = sum(x["harga"] for x in h["item"] if isinstance(x["harga"], (int, float)))
+    if total is None or total <= 0 or total < 0.5 * barang:
+        return h
+    if (nil("pajak") or 0) >= 0.5 * total:
+        h["pajak"] = None
+    if (nil("subtotal") or 0) > 2 * total:
+        h["subtotal"] = None
+    return h
+
+
+@_jalur_prediksi()
 def ke_json_lengkap(kot, lebar, tinggi):
     """ke_json ditambah penambalan agregasi V6. Inilah yang dipakai server.
 
@@ -1055,4 +1124,4 @@ def ke_json_lengkap(kot, lebar, tinggi):
     h = _cadangan_bentuk(kot, h)
     h = _cadangan_kata(kot, idb, h)
     h = _cadangan_pajak_sebaris(kot, idb, h)
-    return _pindah_nontunai(kot, idb, h)
+    return _jaga_wajar(_pindah_nontunai(kot, idb, h))
